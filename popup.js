@@ -15,6 +15,7 @@ const el = {
 };
 
 let latestPayload = null;
+let localBusy = false;
 
 init().catch((error) => {
   setStatus(`初始化失败：${error.message}`);
@@ -22,6 +23,7 @@ init().catch((error) => {
 
 async function init() {
   bindEvents();
+  syncActionState();
   await refreshFromTab();
 }
 
@@ -60,12 +62,17 @@ function bindEvents() {
   });
 
   el.sendBtn.addEventListener("click", async () => {
-    setStatus("正在发送到 Obsidian...");
-    const resp = await sendToContent({ type: "popup-send-obsidian" });
-    if (!resp?.ok) {
-      setMessage(`发送失败：${resp?.error || "未知错误"}`);
+    try {
+      setLocalBusy(true);
+      setStatus("正在发送到 Obsidian...");
+      const resp = await sendToContent({ type: "popup-send-obsidian" });
+      if (!resp?.ok) {
+        setMessage(`发送失败：${resp?.error || "未知错误"}`);
+      }
+      render(resp?.payload || latestPayload);
+    } finally {
+      setLocalBusy(false);
     }
-    render(resp?.payload || latestPayload);
   });
 
   el.subtitleSelect.addEventListener("change", async (event) => {
@@ -74,17 +81,22 @@ function bindEvents() {
     if (!url) {
       return;
     }
-    setStatus("正在切换字幕...");
-    const resp = await sendToContent({
-      type: "popup-select-subtitle",
-      url,
-      lang: String(option.dataset.lang || "unknown"),
-      subtitleId: String(option.dataset.id || "")
-    });
-    if (!resp?.ok) {
-      setMessage(`切换失败：${resp?.error || "未知错误"}`);
+    try {
+      setLocalBusy(true);
+      setStatus("正在切换字幕...");
+      const resp = await sendToContent({
+        type: "popup-select-subtitle",
+        url,
+        lang: String(option.dataset.lang || "unknown"),
+        subtitleId: String(option.dataset.id || "")
+      });
+      if (!resp?.ok) {
+        setMessage(`切换失败：${resp?.error || "未知错误"}`);
+      }
+      render(resp?.payload || latestPayload);
+    } finally {
+      setLocalBusy(false);
     }
-    render(resp?.payload || latestPayload);
   });
 
   el.settingsBtn.addEventListener("click", async () => {
@@ -93,13 +105,18 @@ function bindEvents() {
 }
 
 async function refreshFromTab() {
-  setStatus("正在抓取...");
-  const resp = await sendToContent({ type: "popup-refresh" });
-  if (!resp?.ok) {
-    const errorText = resp?.error || "请在 B 站视频页使用。";
-    setStatus(`抓取失败：${errorText}`);
+  try {
+    setLocalBusy(true);
+    setStatus("正在抓取...");
+    const resp = await sendToContent({ type: "popup-refresh" });
+    if (!resp?.ok) {
+      const errorText = resp?.error || "请在 B 站视频页使用。";
+      setStatus(`抓取失败：${errorText}`);
+    }
+    render(resp?.payload || latestPayload);
+  } finally {
+    setLocalBusy(false);
   }
-  render(resp?.payload || latestPayload);
 }
 
 async function ensurePayload() {
@@ -132,7 +149,6 @@ function render(payload) {
   const options = payload.subtitleOptions || [];
   if (options.length === 0) {
     el.subtitleSelect.innerHTML = '<option value="">暂无字幕</option>';
-    el.subtitleSelect.disabled = true;
   } else {
     el.subtitleSelect.innerHTML = options
       .map((item) => {
@@ -145,10 +161,10 @@ function render(payload) {
         )}</option>`;
       })
       .join("");
-    el.subtitleSelect.disabled = false;
   }
 
   el.preview.value = payload.subtitlePreview || "";
+  syncActionState(payload);
 }
 
 function setText(node, text) {
@@ -161,6 +177,26 @@ function setStatus(text) {
 
 function setMessage(text) {
   el.message.textContent = String(text || "");
+}
+
+function setLocalBusy(flag) {
+  localBusy = Boolean(flag);
+  syncActionState();
+}
+
+function syncActionState(payload = latestPayload) {
+  const data = payload || {};
+  const remoteBusy = Boolean(data.isBusy);
+  const busy = localBusy || remoteBusy;
+  const hasMarkdown = Boolean(data.markdown);
+  const hasSrt = Boolean(data.srt);
+  const options = Array.isArray(data.subtitleOptions) ? data.subtitleOptions : [];
+
+  el.refreshBtn.disabled = busy;
+  el.copyBtn.disabled = busy || !hasMarkdown;
+  el.downloadBtn.disabled = busy || !hasSrt;
+  el.sendBtn.disabled = busy || !hasMarkdown;
+  el.subtitleSelect.disabled = busy || options.length === 0;
 }
 
 function sanitizeFileName(value) {

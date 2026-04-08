@@ -1,21 +1,9 @@
-const DEFAULT_SETTINGS = {
-  noteFolder: "Clippings/Bilibili",
-  obsidianApiBaseUrl: "http://127.0.0.1:27123",
-  obsidianApiKey: "",
-  tags: "clippings,bilibili",
-  includeTimestampInBody: true,
-  frontmatterFields: [
-    "title",
-    "url",
-    "bvid",
-    "cid",
-    "author",
-    "upload_date",
-    "subtitle_lang",
-    "created",
-    "tags"
-  ]
-};
+importScripts("settings.js");
+
+const DEFAULT_SETTINGS =
+  getBocDefaultSettings();
+
+const activeFetchControllers = new Map();
 
 chrome.runtime.onInstalled.addListener(async () => {
   const current = await chrome.storage.sync.get(DEFAULT_SETTINGS);
@@ -53,12 +41,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === "fetch-json") {
     const url = typeof message.url === "string" ? message.url : "";
+    const requestId = String(message.requestId || "");
+    const timeoutMs = Number(message.timeoutMs || 0) || 0;
     if (!url) {
       sendResponse({ ok: false, error: "Missing subtitle URL" });
       return false;
     }
 
-    fetch(url, { method: "GET", credentials: "include", cache: "no-store" })
+    const controller = new AbortController();
+    const signal = controller.signal;
+    let timeoutId = null;
+
+    if (requestId) {
+      activeFetchControllers.set(requestId, controller);
+    }
+
+    if (timeoutMs > 0) {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+      }, timeoutMs);
+    }
+
+    fetch(url, { method: "GET", credentials: "include", cache: "no-store", signal })
       .then(async (response) => {
         if (!response.ok) {
           sendResponse({ ok: false, error: `HTTP ${response.status}` });
@@ -73,8 +77,40 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse({ ok: false, error: "Invalid JSON response" });
         }
       })
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => {
+        if (signal.aborted || error?.name === "AbortError") {
+          sendResponse({ ok: false, error: "REQUEST_ABORTED" });
+          return;
+        }
+        sendResponse({ ok: false, error: error.message });
+      })
+      .finally(() => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        if (requestId) {
+          activeFetchControllers.delete(requestId);
+        }
+      });
     return true;
+  }
+
+  if (message.type === "abort-fetch-json") {
+    const requestId = String(message.requestId || "");
+    if (!requestId) {
+      sendResponse({ ok: false, error: "Missing requestId" });
+      return false;
+    }
+
+    const controller = activeFetchControllers.get(requestId);
+    if (controller) {
+      controller.abort();
+      activeFetchControllers.delete(requestId);
+      sendResponse({ ok: true, aborted: true });
+      return false;
+    }
+    sendResponse({ ok: true, aborted: false });
+    return false;
   }
 
   if (message.type === "write-obsidian-note") {

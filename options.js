@@ -1,4 +1,21 @@
-const DEFAULT_SETTINGS = getBocDefaultSettings();
+const DEFAULT_SETTINGS = {
+  noteFolder: "Clippings/Bilibili",
+  obsidianApiBaseUrl: "http://127.0.0.1:27123",
+  obsidianApiKey: "",
+  tags: "clippings,bilibili",
+  includeTimestampInBody: true,
+  frontmatterFields: [
+    "title",
+    "url",
+    "bvid",
+    "cid",
+    "author",
+    "upload_date",
+    "subtitle_lang",
+    "created",
+    "tags"
+  ]
+};
 
 const elements = {
   noteFolder: document.getElementById("noteFolder"),

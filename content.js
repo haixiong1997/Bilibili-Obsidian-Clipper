@@ -1,9 +1,24 @@
-const DEFAULT_SETTINGS = getBocDefaultSettings();
+const DEFAULT_SETTINGS = {
+  noteFolder: "Clippings/Bilibili",
+  obsidianApiBaseUrl: "http://127.0.0.1:27123",
+  obsidianApiKey: "",
+  tags: "clippings,bilibili",
+  includeTimestampInBody: true,
+  frontmatterFields: [
+    "title",
+    "url",
+    "bvid",
+    "cid",
+    "author",
+    "upload_date",
+    "subtitle_lang",
+    "created",
+    "tags"
+  ]
+};
 
-const BOC_VERSION = "1.1.0";
+const BOC_VERSION = "1.0.11";
 const CACHE_KEY_PREFIX = "boc_subtitle_cache_";
-const FETCH_TIMEOUT_MS = 18000;
-let fetchRequestSeq = 0;
 
 const state = {
   currentUrl: location.href,
@@ -26,11 +41,9 @@ const state = {
   markdown: "",
   srt: "",
   isBusy: false,
-  phase: "idle",
   statusText: "准备就绪，点击“刷新抓取”开始。",
   messageText: "",
-  settings: { ...DEFAULT_SETTINGS },
-  activeFetchRequestIds: new Set()
+  settings: { ...DEFAULT_SETTINGS }
 };
 
 init();
@@ -56,10 +69,6 @@ function bindRuntimeEvents() {
     }
 
     if (message.type === "popup-refresh") {
-      if (state.isBusy) {
-        sendResponse({ ok: false, error: "正在处理中，请稍后。", payload: getPopupPayload() });
-        return false;
-      }
       refreshClip()
         .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
         .catch((error) => sendResponse({ ok: false, error: error.message, payload: getPopupPayload() }));
@@ -74,44 +83,16 @@ function bindRuntimeEvents() {
         sendResponse({ ok: false, error: "Missing subtitle URL", payload: getPopupPayload() });
         return false;
       }
-      if (state.isBusy) {
-        sendResponse({ ok: false, error: "正在处理中，请稍后。", payload: getPopupPayload() });
-        return false;
-      }
-
-      const runId = ++state.fetchRunId;
-      (async () => {
-        setBusyState(true);
-        setPhase("loading", `正在切换字幕：${lang}`);
-        await abortActiveFetches();
-        await loadSubtitle(url, lang, runId, subtitleId, true);
-        ensureRunActive(runId);
-        setPhase("ready", "字幕切换完成。");
-      })()
+      loadSubtitle(url, lang, state.fetchRunId, subtitleId)
         .then(() => {
+          setStatus("字幕切换完成。");
           sendResponse({ ok: true, payload: getPopupPayload() });
         })
-        .catch((error) => {
-          if (isAbortError(error) || isStaleRunError(error)) {
-            sendResponse({ ok: false, error: "已取消旧请求。", payload: getPopupPayload() });
-            return;
-          }
-          setPhase("error", `切换字幕失败：${error.message}`);
-          sendResponse({ ok: false, error: error.message, payload: getPopupPayload() });
-        })
-        .finally(() => {
-          if (runId === state.fetchRunId) {
-            setBusyState(false);
-          }
-        });
+        .catch((error) => sendResponse({ ok: false, error: error.message, payload: getPopupPayload() }));
       return true;
     }
 
     if (message.type === "popup-send-obsidian") {
-      if (state.isBusy) {
-        sendResponse({ ok: false, error: "正在处理中，请稍后。", payload: getPopupPayload() });
-        return false;
-      }
       sendToObsidian()
         .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
         .catch((error) => sendResponse({ ok: false, error: error.message, payload: getPopupPayload() }));
@@ -130,9 +111,8 @@ function startUrlWatcher() {
 
     state.fetchRunId += 1;
     state.currentUrl = location.href;
-    abortActiveFetches().catch(() => {});
     resetClipState();
-    setPhase("idle", "检测到页面变化，请点击“刷新抓取”加载当前视频字幕。");
+    setStatus("检测到页面变化，请点击“刷新抓取”加载当前视频字幕。");
   }, 1200);
 }
 
@@ -154,9 +134,6 @@ function resetClipState() {
   state.chapters = [];
   state.markdown = "";
   state.srt = "";
-  state.activeFetchRequestIds.clear();
-  state.isBusy = false;
-  state.phase = "idle";
   setMessage("");
 }
 
@@ -165,8 +142,7 @@ async function refreshClip() {
   try {
     setBusyState(true);
     setMessage("");
-    setPhase("loading", "正在抓取视频信息...");
-    await abortActiveFetches();
+    setStatus("正在抓取视频信息...");
     state.settings = await getSettings();
     ensureRunActive(runId);
 
@@ -306,17 +282,17 @@ async function refreshClip() {
         lanDoc: selected.lanDoc
       });
     }
-    setPhase("ready", "抓取完成，可以复制、下载或发送到 Obsidian。");
+    setStatus("抓取完成，可以复制、下载或发送到 Obsidian。");
   } catch (error) {
-    if (isStaleRunError(error) || isAbortError(error)) {
+    if (isStaleRunError(error)) {
       return;
     }
     resetClipState();
     if (error?.code === "SUBTITLE_DURATION_MISMATCH") {
-      setPhase("error", "抓取失败：未找到与当前视频时长匹配的字幕轨，可能该视频无可用字幕。");
+      setStatus("抓取失败：未找到与当前视频时长匹配的字幕轨，可能该视频无可用字幕。");
       return;
     }
-    setPhase("error", `抓取失败：${error.message}`);
+    setStatus(`抓取失败：${error.message}`);
   } finally {
     if (runId === state.fetchRunId) {
       setBusyState(false);
@@ -474,8 +450,6 @@ function getPopupPayload() {
     author: state.author || "",
     uploadDate: state.uploadDate || "",
     tags: String(state.settings?.tags || ""),
-    phase: state.phase || "idle",
-    isBusy: Boolean(state.isBusy),
     status: state.statusText || "",
     message: state.messageText || "",
     subtitlePreview: buildSubtitlePreview(state.subtitleBody || [], state.settings || DEFAULT_SETTINGS),
@@ -502,21 +476,15 @@ async function sendToObsidian() {
     return;
   }
 
-  setBusyState(true);
-  setStatus("正在写入 Obsidian...");
   try {
     await writeNoteByLocalApi(baseUrl, apiKey, filepath, state.markdown);
     setMessage(`已写入 Obsidian：${filepath}`);
-    setPhase("ready", "写入完成。");
   } catch (error) {
     if (isExtensionContextInvalidated(error)) {
       setMessage("扩展刚刚更新，请刷新当前页面后重试。");
       return;
     }
     setMessage(`写入失败：${error.message}`);
-    setPhase("error", `写入失败：${error.message}`);
-  } finally {
-    setBusyState(false);
   }
 }
 
@@ -535,13 +503,6 @@ async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content) {
 
 function setBusyState(disabled) {
   state.isBusy = Boolean(disabled);
-}
-
-function setPhase(phase, statusText = "") {
-  state.phase = String(phase || "idle");
-  if (statusText) {
-    state.statusText = String(statusText);
-  }
 }
 
 function setStatus(text) {
@@ -601,23 +562,6 @@ async function getSettings() {
   }
 }
 
-function buildFetchRequestId() {
-  fetchRequestSeq += 1;
-  return `boc-${Date.now()}-${fetchRequestSeq}`;
-}
-
-async function abortActiveFetches() {
-  const requestIds = Array.from(state.activeFetchRequestIds || []);
-  if (requestIds.length === 0) {
-    return;
-  }
-
-  await Promise.allSettled(
-    requestIds.map((requestId) => sendRuntimeMessage({ type: "abort-fetch-json", requestId }))
-  );
-  state.activeFetchRequestIds.clear();
-}
-
 function extractBvid(url) {
   const match = url.match(/\/video\/(BV[0-9A-Za-z]+)/);
   return match?.[1] || "";
@@ -645,11 +589,6 @@ function ensureRunActive(runId) {
 
 function isStaleRunError(error) {
   return error?.code === "STALE_RUN";
-}
-
-function isAbortError(error) {
-  const message = String(error?.message || "");
-  return error?.name === "AbortError" || message.includes("REQUEST_ABORTED");
 }
 
 async function retryAsync(task, retries = 1, delayMs = 180) {
@@ -1266,23 +1205,10 @@ async function fetchJson(url) {
     return fetchJsonInBackground(url);
   }
 
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  let response = null;
-  try {
-    response = await fetch(url, {
-      credentials: "include",
-      cache: "no-store",
-      signal: controller.signal
-    });
-  } catch (error) {
-    if (controller.signal.aborted || error?.name === "AbortError") {
-      throw new Error("REQUEST_ABORTED");
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
+  const response = await fetch(url, {
+    credentials: "include",
+    cache: "no-store"
+  });
 
   if (!response.ok) {
     throw new Error(`请求失败：${response.status}`);
@@ -1292,15 +1218,8 @@ async function fetchJson(url) {
 }
 
 async function fetchJsonInBackground(url) {
-  const requestId = buildFetchRequestId();
-  state.activeFetchRequestIds.add(requestId);
   try {
-    const resp = await sendRuntimeMessage({
-      type: "fetch-json",
-      url,
-      requestId,
-      timeoutMs: FETCH_TIMEOUT_MS
-    });
+    const resp = await sendRuntimeMessage({ type: "fetch-json", url });
     if (!resp?.ok) {
       throw new Error(resp?.error || "Background fetch failed");
     }
@@ -1310,8 +1229,6 @@ async function fetchJsonInBackground(url) {
       throw new Error("扩展刚刚更新，请刷新当前页面后重试。");
     }
     throw error;
-  } finally {
-    state.activeFetchRequestIds.delete(requestId);
   }
 }
 

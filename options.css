@@ -69,6 +69,11 @@ select {
   font-size: 13px;
 }
 
+.inline-hint {
+  margin-top: -6px;
+  margin-bottom: 10px;
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

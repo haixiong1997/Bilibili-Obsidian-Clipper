@@ -3,7 +3,9 @@ const DEFAULT_SETTINGS = {
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   obsidianApiKey: "",
   tags: "clippings,bilibili",
+  downloadFormat: "srt",
   includeTimestampInBody: true,
+  enableDebugLogs: false,
   frontmatterFields: [
     "title",
     "url",
@@ -22,7 +24,9 @@ const elements = {
   obsidianApiBaseUrl: document.getElementById("obsidianApiBaseUrl"),
   obsidianApiKey: document.getElementById("obsidianApiKey"),
   tags: document.getElementById("tags"),
+  downloadFormat: document.getElementById("downloadFormat"),
   includeTimestampInBody: document.getElementById("includeTimestampInBody"),
+  enableDebugLogs: document.getElementById("enableDebugLogs"),
   frontmatterFields: document.querySelectorAll('input[name="frontmatterField"]'),
   saveBtn: document.getElementById("saveBtn"),
   status: document.getElementById("status")
@@ -41,7 +45,9 @@ async function loadSettings() {
   elements.obsidianApiBaseUrl.value = settings.obsidianApiBaseUrl || "";
   elements.obsidianApiKey.value = settings.obsidianApiKey || "";
   elements.tags.value = settings.tags || "";
+  elements.downloadFormat.value = normalizeDownloadFormat(settings.downloadFormat);
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
+  elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
   const selectedFields = new Set(settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields);
   elements.frontmatterFields.forEach((checkbox) => {
     checkbox.checked = selectedFields.has(checkbox.value);
@@ -58,7 +64,9 @@ async function saveSettings() {
     obsidianApiBaseUrl: elements.obsidianApiBaseUrl.value.trim(),
     obsidianApiKey: elements.obsidianApiKey.value.trim(),
     tags: elements.tags.value.trim(),
+    downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
     includeTimestampInBody: elements.includeTimestampInBody.checked,
+    enableDebugLogs: elements.enableDebugLogs.checked,
     frontmatterFields: selectedFields
   };
 
@@ -92,4 +100,8 @@ async function getSettings() {
 function setStatus(text, isError = false) {
   elements.status.textContent = text;
   elements.status.dataset.error = isError ? "true" : "false";
+}
+
+function normalizeDownloadFormat(value) {
+  return value === "txt" ? "txt" : "srt";
 }

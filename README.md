@@ -34,7 +34,9 @@
    - `Local REST API Key`
    - `笔记目录`（如 `Clippings/Bilibili`）
    - `默认 tags`
+   - `下载格式`（`srt` 或 `txt`，默认 `srt`）
    - `Frontmatter 字段勾选`
+3. `Local REST API Key` 仅保存到当前浏览器本地（`chrome.storage.local`），不会走 Chrome 同步
 
 ## 使用流程
 
@@ -70,8 +72,9 @@
 
 1. 每次改代码后先在 `chrome://extensions/` 点“重新加载”
 2. 再刷新 B 站视频页
-3. 打开视频页 DevTools，查看前缀为 `[BOC]` 的日志
-4. 常见失败点：
+3. 设置页可手动开启“调试日志（仅在排查问题时开启）”，默认关闭
+4. 打开视频页 DevTools，查看前缀为 `[BOC]` 的日志
+5. 常见失败点：
    - 视频本身无字幕
    - 字幕接口临时限流
    - Local REST API 地址或 Key 错误

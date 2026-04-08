@@ -19,13 +19,25 @@
 
       <label for="obsidianApiKey">Local REST API Key</label>
       <input id="obsidianApiKey" type="password" placeholder="填入 Obsidian Local REST API 的 Key" />
+      <p class="hint inline-hint">API Key 仅保存在当前浏览器本地，不会通过 Chrome 账号同步。</p>
 
       <label for="tags">默认标签（逗号分隔）</label>
       <input id="tags" type="text" placeholder="例如：clippings,bilibili,subtitle" />
 
+      <label for="downloadFormat">下载格式</label>
+      <select id="downloadFormat">
+        <option value="srt">SRT</option>
+        <option value="txt">TXT</option>
+      </select>
+
       <label class="checkbox">
         <input id="includeTimestampInBody" type="checkbox" />
         在字幕正文中保留时间戳
+      </label>
+
+      <label class="checkbox">
+        <input id="enableDebugLogs" type="checkbox" />
+        启用调试日志（仅在排查问题时开启）
       </label>
 
       <section class="field-group">

@@ -1,9 +1,10 @@
-const DEFAULT_SETTINGS = {
+const DEFAULT_SYNC_SETTINGS = {
   noteFolder: "Clippings/Bilibili",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
-  obsidianApiKey: "",
   tags: "clippings,bilibili",
+  downloadFormat: "srt",
   includeTimestampInBody: true,
+  enableDebugLogs: false,
   frontmatterFields: [
     "title",
     "url",
@@ -17,9 +18,12 @@ const DEFAULT_SETTINGS = {
   ]
 };
 
+const DEFAULT_LOCAL_SETTINGS = {
+  obsidianApiKey: ""
+};
+
 chrome.runtime.onInstalled.addListener(async () => {
-  const current = await chrome.storage.sync.get(DEFAULT_SETTINGS);
-  await chrome.storage.sync.set(current);
+  await initializeSettingsStorage();
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -28,16 +32,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === "get-settings") {
-    chrome.storage.sync
-      .get(DEFAULT_SETTINGS)
+    getMergedSettings()
       .then((settings) => sendResponse({ ok: true, settings }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
 
   if (message.type === "save-settings") {
-    chrome.storage.sync
-      .set(message.settings || {})
+    saveSettings(message.settings || {})
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -141,3 +143,68 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   return false;
 });
+
+async function initializeSettingsStorage() {
+  const syncCurrent = await chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS);
+  const localCurrent = await chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS);
+
+  await chrome.storage.sync.set({ ...DEFAULT_SYNC_SETTINGS, ...syncCurrent });
+  await chrome.storage.local.set({
+    obsidianApiKey: toString(localCurrent.obsidianApiKey)
+  });
+
+  const legacySyncApiKey = toString(syncCurrent.obsidianApiKey).trim();
+  const localApiKey = toString(localCurrent.obsidianApiKey).trim();
+  if (!localApiKey && legacySyncApiKey) {
+    await chrome.storage.local.set({ obsidianApiKey: legacySyncApiKey });
+  }
+
+  if ("obsidianApiKey" in syncCurrent) {
+    await chrome.storage.sync.remove("obsidianApiKey");
+  }
+}
+
+async function getMergedSettings() {
+  const [syncSettings, localSettings] = await Promise.all([
+    chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS),
+    chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS)
+  ]);
+
+  const merged = { ...DEFAULT_SYNC_SETTINGS, ...syncSettings };
+  merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
+  let apiKey = toString(localSettings.obsidianApiKey).trim();
+  const legacySyncApiKey = toString(syncSettings.obsidianApiKey).trim();
+
+  if (!apiKey && legacySyncApiKey) {
+    apiKey = legacySyncApiKey;
+    await chrome.storage.local.set({ obsidianApiKey: apiKey });
+    await chrome.storage.sync.remove("obsidianApiKey");
+  }
+
+  return {
+    ...merged,
+    obsidianApiKey: apiKey
+  };
+}
+
+async function saveSettings(settings) {
+  const payload = settings && typeof settings === "object" ? settings : {};
+  const syncPayload = { ...payload };
+  delete syncPayload.obsidianApiKey;
+  syncPayload.downloadFormat = normalizeDownloadFormat(syncPayload.downloadFormat);
+
+  await Promise.all([
+    chrome.storage.sync.set(syncPayload),
+    chrome.storage.local.set({
+      obsidianApiKey: toString(payload.obsidianApiKey).trim()
+    })
+  ]);
+}
+
+function toString(value) {
+  return typeof value === "string" ? value : "";
+}
+
+function normalizeDownloadFormat(value) {
+  return value === "txt" ? "txt" : "srt";
+}

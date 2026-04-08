@@ -3,7 +3,9 @@ const DEFAULT_SETTINGS = {
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   obsidianApiKey: "",
   tags: "clippings,bilibili",
+  downloadFormat: "srt",
   includeTimestampInBody: true,
+  enableDebugLogs: false,
   frontmatterFields: [
     "title",
     "url",
@@ -40,10 +42,27 @@ const state = {
   chapters: [],
   markdown: "",
   srt: "",
+  txt: "",
   statusText: "准备就绪，点击“刷新抓取”开始。",
   messageText: "",
   settings: { ...DEFAULT_SETTINGS }
 };
+
+function shouldDebugLog() {
+  return Boolean(state.settings?.enableDebugLogs);
+}
+
+function logInfo(...args) {
+  if (shouldDebugLog()) {
+    console.info(...args);
+  }
+}
+
+function logWarn(...args) {
+  if (shouldDebugLog()) {
+    console.warn(...args);
+  }
+}
 
 const ids = {
   root: "boc-root",
@@ -69,7 +88,7 @@ function init() {
     existingRoot.remove();
   }
 
-  console.info(`[BOC] content script loaded, version=${BOC_VERSION}`);
+  logInfo(`[BOC] content script loaded, version=${BOC_VERSION}`);
 
   const root = document.createElement("div");
   root.id = ids.root;
@@ -163,7 +182,7 @@ function buildUiHtml() {
       <div class="boc-actions">
         <button id="${ids.refreshBtn}" type="button">刷新抓取</button>
         <button id="${ids.copyBtn}" type="button">复制完整 Markdown</button>
-        <button id="${ids.downloadBtn}" type="button">下载 SRT</button>
+        <button id="${ids.downloadBtn}" type="button">下载字幕</button>
         <button id="${ids.sendBtn}" type="button">发送到 Obsidian</button>
       </div>
       <p id="${ids.message}" class="boc-message"></p>
@@ -185,7 +204,7 @@ function bindUiEvents() {
   refreshBtn.addEventListener("click", refreshClip);
   select.addEventListener("change", onSubtitleChange);
   copyBtn.addEventListener("click", copyMarkdown);
-  downloadBtn.addEventListener("click", downloadSrt);
+  downloadBtn.addEventListener("click", downloadSubtitle);
   sendBtn.addEventListener("click", sendToObsidian);
   settingsBtn.addEventListener("click", requestOpenOptions);
 }
@@ -221,6 +240,7 @@ function resetClipState() {
   state.chapters = [];
   state.markdown = "";
   state.srt = "";
+  state.txt = "";
 
   renderMeta();
   renderSubtitleSelect();
@@ -248,7 +268,7 @@ async function refreshClip() {
     ensureRunActive(runId);
 
     // 调试：打印 API 返回的原始数据
-    console.info("[BOC] raw meta data", {
+    logInfo("[BOC] raw meta data", {
       meta,
       defaultCid: meta.defaultCid,
       pagesCount: (meta.pages || []).length
@@ -259,12 +279,16 @@ async function refreshClip() {
     state.author = meta.author || readVideoAuthor();
     state.uploadDate = meta.uploadDate || readUploadDate();
     state.description = meta.description || "";
+    let resolvedPageIndex = pageIndex;
     if ((meta.pages || []).length > 1 && !hasPageParam) {
-      throw new Error("多分P视频请先切到目标分P（URL含?p=）后再抓取。");
+      // B 站多分P中，P1 常见为无 ?p= 参数，此时默认按 P1 解析。
+      resolvedPageIndex = 1;
+      logInfo("[BOC] multi-page video without p param, fallback to P1");
     }
-    state.cid = pickCidFromPages(meta.pages, pageIndex, meta.defaultCid);
+
+    state.cid = pickCidFromPages(meta.pages, resolvedPageIndex, meta.defaultCid);
     state.cidSource = "meta-pages";
-    state.videoDuration = pickDurationFromPages(meta.pages, pageIndex, meta.defaultDuration);
+    state.videoDuration = pickDurationFromPages(meta.pages, resolvedPageIndex, meta.defaultDuration);
     if (!(state.videoDuration > 0)) {
       state.videoDuration = readRuntimeVideoDuration();
     }
@@ -272,13 +296,13 @@ async function refreshClip() {
       throw new Error("无法获取当前视频时长，已停止抓取以避免串到错误字幕。");
     }
 
-    console.info("[BOC] resolved video ids", {
+    logInfo("[BOC] resolved video ids", {
       url: location.href,
       aid: state.aid,
       bvid: state.bvid,
       cid: state.cid,
       cidSource: state.cidSource,
-      pageIndex,
+      pageIndex: resolvedPageIndex,
       videoDuration: state.videoDuration
     });
 
@@ -291,7 +315,7 @@ async function refreshClip() {
     ensureRunActive(runId);
     state.subtitles = normalizeSubtitleTracks(subtitleBundle.tracks);
     state.chapters = normalizeChapters(subtitleBundle.chapters);
-    console.info(
+    logInfo(
       "[BOC] chapters",
       state.chapters.map((item) => ({
         from: item.from,
@@ -299,7 +323,7 @@ async function refreshClip() {
         title: item.title
       }))
     );
-    console.info(
+    logInfo(
       "[BOC] subtitle tracks",
       state.subtitles.map((item) => ({
         id: item.id,
@@ -360,7 +384,7 @@ async function refreshClip() {
     }
     ensureRunActive(runId);
     if (selected) {
-      console.info("[BOC] selected subtitle track", {
+      logInfo("[BOC] selected subtitle track", {
         id: selected.id,
         lan: selected.lan,
         lanDoc: selected.lanDoc
@@ -430,13 +454,13 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
     if (cachedBody && Array.isArray(cachedBody) && cachedBody.length > 0) {
       const cachedCheck = validateSubtitleByDuration(cachedBody, state.videoDuration);
       if (!cachedCheck.ok) {
-        console.warn("[BOC] cached subtitle duration mismatch, clearing cache", {
+        logWarn("[BOC] cached subtitle duration mismatch, clearing cache", {
           cacheKey,
           reason: cachedCheck.reason
         });
         await clearSubtitleCacheByKey(cacheKey);
       } else {
-        console.info("[BOC] using cached subtitle", { cacheKey, itemCount: cachedBody.length });
+        logInfo("[BOC] using cached subtitle", { cacheKey, itemCount: cachedBody.length });
         ensureRunActive(runId);
         state.selectedSubtitleId = subtitleId ? String(subtitleId) : state.selectedSubtitleId;
         state.selectedSubtitleUrl = url;
@@ -444,6 +468,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
         state.subtitleBody = cachedBody;
         state.markdown = buildMarkdown(state, cachedBody, state.settings);
         state.srt = buildSrt(cachedBody);
+        state.txt = buildTxt(cachedBody, state.settings);
         byId(ids.preview).value = buildSubtitlePreview(cachedBody, state.settings);
         return;
       }
@@ -474,6 +499,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
   state.subtitleBody = body;
   state.markdown = buildMarkdown(state, body, state.settings);
   state.srt = buildSrt(body);
+  state.txt = buildTxt(body, state.settings);
   byId(ids.preview).value = buildSubtitlePreview(body, state.settings);
 }
 
@@ -529,7 +555,7 @@ async function saveSubtitleToCache(cacheKey, body) {
       }
     });
   } catch (error) {
-    console.warn("[BOC] failed to save subtitle cache", error);
+    logWarn("[BOC] failed to save subtitle cache", error);
   }
 }
 
@@ -537,7 +563,7 @@ async function clearSubtitleCacheByKey(cacheKey) {
   try {
     await chrome.storage.local.remove(cacheKey);
   } catch (error) {
-    console.warn("[BOC] failed to clear subtitle cache by key", { cacheKey, error });
+    logWarn("[BOC] failed to clear subtitle cache by key", { cacheKey, error });
   }
 }
 
@@ -545,9 +571,9 @@ async function clearSubtitleCache(bvid, cid, lang) {
   const cacheKey = getSubtitleCacheKey({ bvid, cid, lang });
   try {
     await chrome.storage.local.remove(cacheKey);
-    console.info("[BOC] cleared subtitle cache", { cacheKey });
+    logInfo("[BOC] cleared subtitle cache", { cacheKey });
   } catch (error) {
-    console.warn("[BOC] failed to clear subtitle cache", error);
+    logWarn("[BOC] failed to clear subtitle cache", error);
   }
 }
 
@@ -625,6 +651,8 @@ function getPopupPayload() {
     subtitlePreview: buildSubtitlePreview(state.subtitleBody || [], state.settings || DEFAULT_SETTINGS),
     markdown: state.markdown || "",
     srt: state.srt || "",
+    txt: state.txt || "",
+    downloadFormat: normalizeDownloadFormat(state.settings?.downloadFormat),
     subtitleOptions
   };
 }
@@ -643,15 +671,17 @@ async function copyMarkdown() {
   }
 }
 
-function downloadSrt() {
-  if (!state.srt) {
+function downloadSubtitle() {
+  const format = normalizeDownloadFormat(state.settings?.downloadFormat);
+  const content = format === "txt" ? state.txt : state.srt;
+  if (!content) {
     setMessage("没有可下载的字幕，请先刷新抓取。");
     return;
   }
 
   const safeTitle = sanitizeFileName(state.title || state.bvid || "bilibili-subtitle");
-  const filename = `${safeTitle}.${state.selectedSubtitleLang || "subtitle"}.srt`;
-  const blob = new Blob([state.srt], { type: "text/plain;charset=utf-8" });
+  const filename = `${safeTitle}.${state.selectedSubtitleLang || "subtitle"}.${format}`;
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement("a");
@@ -871,7 +901,7 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
       }
       // 指数退避：delayMs * 2^(attempt-1)，最多等待 5 秒
       const backoffDelay = Math.min(delayMs * Math.pow(2, attempt - 1), 5000);
-      console.info(`[BOC] retrying after ${backoffDelay}ms, attempt ${attempt + 1}/${retries}`, {
+      logInfo(`[BOC] retrying after ${backoffDelay}ms, attempt ${attempt + 1}/${retries}`, {
         error: getErrorMessage(error),
         code: error.code
       });
@@ -887,7 +917,7 @@ async function sleep(ms) {
 
 async function fetchVideoMeta(bvid) {
   const url = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`;
-  console.info("[BOC] fetch video meta", { url, bvid });
+  logInfo("[BOC] fetch video meta", { url, bvid });
   const payload = await fetchJson(url);
   if (payload.code !== 0) {
     throw new Error(toReadableText(payload?.message, "无法获取视频信息"));
@@ -999,7 +1029,7 @@ function readUploadDate() {
 async function fetchSubtitleBundle(bvid, cid, aid = "") {
   const requests = buildSubtitleInfoRequests({ bvid, cid, aid });
   const fetchByRequest = async (request) => {
-    console.info("[BOC] fetch subtitles list", {
+    logInfo("[BOC] fetch subtitles list", {
       source: request.source,
       url: request.url,
       bvid,
@@ -1008,7 +1038,7 @@ async function fetchSubtitleBundle(bvid, cid, aid = "") {
     });
 
     const payload = await fetchJson(request.url);
-    console.info("[BOC] subtitles API raw response", { source: request.source, payload });
+    logInfo("[BOC] subtitles API raw response", { source: request.source, payload });
     if (payload.code !== 0) {
       throw buildBiliApiError(payload, "无法获取字幕列表");
     }
@@ -1032,7 +1062,7 @@ async function fetchSubtitleBundle(bvid, cid, aid = "") {
     // 主来源成功但无字幕：直接判定无字幕，不再跨源兜底。
     return { tracks: [], chapters: primaryResult.chapters };
   } catch (primaryError) {
-    console.warn("[BOC] subtitles API request failed", {
+    logWarn("[BOC] subtitles API request failed", {
       source: primaryRequest.source,
       message: getErrorMessage(primaryError)
     });
@@ -1043,7 +1073,7 @@ async function fetchSubtitleBundle(bvid, cid, aid = "") {
       try {
         const secondaryResult = await fetchByRequest(secondaryRequest);
         if (secondaryResult.withUrl.length > 0) {
-          console.warn("[BOC] primary subtitles source failed, using fallback source", {
+          logWarn("[BOC] primary subtitles source failed, using fallback source", {
             primary: primaryRequest.source,
             fallback: secondaryRequest.source
           });
@@ -1051,7 +1081,7 @@ async function fetchSubtitleBundle(bvid, cid, aid = "") {
         }
         return { tracks: [], chapters: secondaryResult.chapters };
       } catch (secondaryError) {
-        console.warn("[BOC] fallback subtitles source failed", {
+        logWarn("[BOC] fallback subtitles source failed", {
           source: secondaryRequest.source,
           message: getErrorMessage(secondaryError)
         });
@@ -1270,7 +1300,7 @@ async function tryLoadSubtitleCandidates(candidates, runId, forceRefresh) {
   let lastError = null;
   for (const item of candidates || []) {
     try {
-      console.info("[BOC] try subtitle track", {
+      logInfo("[BOC] try subtitle track", {
         id: item.id,
         lan: item.lan,
         lanDoc: item.lanDoc,
@@ -1295,9 +1325,9 @@ async function tryLoadSubtitleCandidates(candidates, runId, forceRefresh) {
         reason: reasonCode || reasonMessage
       };
       if (reasonCode === "SUBTITLE_DURATION_MISMATCH") {
-        console.info(`[BOC] subtitle track skipped ${JSON.stringify(meta)}`);
+        logInfo(`[BOC] subtitle track skipped ${JSON.stringify(meta)}`);
       } else {
-        console.warn(`[BOC] subtitle track rejected ${JSON.stringify(meta)}`);
+        logWarn(`[BOC] subtitle track rejected ${JSON.stringify(meta)}`);
       }
       ensureRunActive(runId);
       continue;
@@ -1400,7 +1430,7 @@ function readRuntimeVideoDuration() {
 }
 
 async function fetchSubtitleBody(url) {
-  console.info("[BOC] fetch subtitle body", { url });
+  logInfo("[BOC] fetch subtitle body", { url });
   return fetchJsonInBackground(url);
 }
 
@@ -1669,6 +1699,23 @@ function buildSrt(body) {
     .join("\n\n");
 }
 
+function buildTxt(body, settings) {
+  const withHours = shouldShowHoursInSubtitle(body);
+  return (body || [])
+    .map((item) => {
+      const text = String(item?.content || "").trim();
+      if (!text) {
+        return "";
+      }
+      if (!settings?.includeTimestampInBody) {
+        return text;
+      }
+      return `${formatCompactTimestamp(item.from, withHours)} ${text}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 function shouldShowHoursInSubtitle(body) {
   const maxTo = (body || []).reduce((max, item) => {
     const to = Number(item?.to || 0);
@@ -1727,6 +1774,10 @@ function formatTimestamp(seconds, forSrt = false) {
 
 function sanitizeFileName(value) {
   return value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120);
+}
+
+function normalizeDownloadFormat(value) {
+  return value === "txt" ? "txt" : "srt";
 }
 
 function buildNoteFilename(meta) {

@@ -42,21 +42,24 @@ function bindEvents() {
 
   el.downloadBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
-    if (!payload?.srt) {
+    const format = normalizeDownloadFormat(payload?.downloadFormat);
+    const content =
+      format === "txt" ? payload?.txt || payload?.subtitlePreview || "" : payload?.srt || "";
+    if (!content) {
       setMessage("没有可下载字幕。");
       return;
     }
     const safeTitle = sanitizeFileName(payload.title || "bilibili-subtitle");
-    const blob = new Blob([payload.srt], { type: "text/plain;charset=utf-8" });
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${safeTitle}.srt`;
+    a.download = `${safeTitle}.${format}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    setMessage("已下载 SRT。");
+    setMessage(`已下载 ${format.toUpperCase()}。`);
   });
 
   el.sendBtn.addEventListener("click", async () => {
@@ -169,6 +172,10 @@ function sanitizeFileName(value) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120);
+}
+
+function normalizeDownloadFormat(value) {
+  return value === "txt" ? "txt" : "srt";
 }
 
 function escapeHtml(value) {

@@ -17,7 +17,7 @@ const DEFAULT_SETTINGS = {
   ]
 };
 
-const BOC_VERSION = "1.0.11";
+const BOC_VERSION = "1.0.10";
 const CACHE_KEY_PREFIX = "boc_subtitle_cache_";
 
 const state = {
@@ -40,16 +40,43 @@ const state = {
   chapters: [],
   markdown: "",
   srt: "",
-  isBusy: false,
   statusText: "准备就绪，点击“刷新抓取”开始。",
   messageText: "",
   settings: { ...DEFAULT_SETTINGS }
 };
 
+const ids = {
+  root: "boc-root",
+  panel: "boc-panel",
+  status: "boc-status",
+  meta: "boc-meta",
+  subtitleSelect: "boc-subtitle-select",
+  preview: "boc-preview",
+  message: "boc-message",
+  copyBtn: "boc-copy-btn",
+  downloadBtn: "boc-download-btn",
+  sendBtn: "boc-send-btn",
+  refreshBtn: "boc-refresh-btn",
+  closeBtn: "boc-close-btn",
+  settingsBtn: "boc-settings-btn"
+};
+
 init();
 
 function init() {
+  const existingRoot = document.getElementById(ids.root);
+  if (existingRoot) {
+    existingRoot.remove();
+  }
+
   console.info(`[BOC] content script loaded, version=${BOC_VERSION}`);
+
+  const root = document.createElement("div");
+  root.id = ids.root;
+  root.innerHTML = buildUiHtml();
+  document.body.appendChild(root);
+
+  bindUiEvents();
   bindRuntimeEvents();
   startUrlWatcher();
   getSettings().then((settings) => {
@@ -86,6 +113,7 @@ function bindRuntimeEvents() {
       loadSubtitle(url, lang, state.fetchRunId, subtitleId)
         .then(() => {
           setStatus("字幕切换完成。");
+          renderSubtitleSelect();
           sendResponse({ ok: true, payload: getPopupPayload() });
         })
         .catch((error) => sendResponse({ ok: false, error: error.message, payload: getPopupPayload() }));
@@ -101,6 +129,59 @@ function bindRuntimeEvents() {
 
     return false;
   });
+}
+
+function buildUiHtml() {
+  return `
+    <aside id="${ids.panel}" aria-hidden="true">
+      <header class="boc-header">
+        <strong>Default</strong>
+        <div class="boc-header-actions">
+          <button id="${ids.settingsBtn}" type="button" title="插件设置">设置</button>
+          <button id="${ids.closeBtn}" type="button" title="关闭">关闭</button>
+        </div>
+      </header>
+
+      <p id="${ids.status}" class="boc-status">准备就绪，点击“刷新抓取”开始。</p>
+      <div class="boc-props-head">属性</div>
+      <div id="${ids.meta}" class="boc-meta"></div>
+
+      <label class="boc-label" for="${ids.subtitleSelect}">字幕语言</label>
+      <select id="${ids.subtitleSelect}" disabled>
+        <option value="">暂无字幕</option>
+      </select>
+
+      <label class="boc-label" for="${ids.preview}">字幕预览</label>
+      <textarea id="${ids.preview}" readonly></textarea>
+
+      <div class="boc-actions">
+        <button id="${ids.refreshBtn}" type="button">刷新抓取</button>
+        <button id="${ids.copyBtn}" type="button">复制完整 Markdown</button>
+        <button id="${ids.downloadBtn}" type="button">下载 SRT</button>
+        <button id="${ids.sendBtn}" type="button">发送到 Obsidian</button>
+      </div>
+      <p id="${ids.message}" class="boc-message"></p>
+    </aside>
+  `;
+}
+
+function bindUiEvents() {
+  const panel = byId(ids.panel);
+  const closeBtn = byId(ids.closeBtn);
+  const refreshBtn = byId(ids.refreshBtn);
+  const select = byId(ids.subtitleSelect);
+  const copyBtn = byId(ids.copyBtn);
+  const downloadBtn = byId(ids.downloadBtn);
+  const sendBtn = byId(ids.sendBtn);
+  const settingsBtn = byId(ids.settingsBtn);
+
+  closeBtn.addEventListener("click", () => panel.classList.remove("open"));
+  refreshBtn.addEventListener("click", refreshClip);
+  select.addEventListener("change", onSubtitleChange);
+  copyBtn.addEventListener("click", copyMarkdown);
+  downloadBtn.addEventListener("click", downloadSrt);
+  sendBtn.addEventListener("click", sendToObsidian);
+  settingsBtn.addEventListener("click", requestOpenOptions);
 }
 
 function startUrlWatcher() {
@@ -134,6 +215,10 @@ function resetClipState() {
   state.chapters = [];
   state.markdown = "";
   state.srt = "";
+
+  renderMeta();
+  renderSubtitleSelect();
+  byId(ids.preview).value = "";
   setMessage("");
 }
 
@@ -282,6 +367,8 @@ async function refreshClip() {
         lanDoc: selected.lanDoc
       });
     }
+    renderMeta();
+    renderSubtitleSelect();
     setStatus("抓取完成，可以复制、下载或发送到 Obsidian。");
   } catch (error) {
     if (isStaleRunError(error)) {
@@ -297,6 +384,31 @@ async function refreshClip() {
     if (runId === state.fetchRunId) {
       setBusyState(false);
     }
+  }
+}
+
+async function onSubtitleChange(event) {
+  const value = event.target.value;
+  const option = event.target.options[event.target.selectedIndex];
+  const lang = option?.dataset.lang || "unknown";
+  const subtitleId = option?.dataset.id || "";
+  if (!value) {
+    return;
+  }
+
+  try {
+    setBusyState(true);
+    setStatus(`正在切换字幕：${lang}`);
+    setMessage("");
+    await loadSubtitle(value, lang, state.fetchRunId, subtitleId);
+    setStatus("字幕切换完成。");
+  } catch (error) {
+    if (isStaleRunError(error)) {
+      return;
+    }
+    setStatus(`切换字幕失败：${error.message}`);
+  } finally {
+    setBusyState(false);
   }
 }
 
@@ -333,6 +445,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
         state.subtitleBody = cachedBody;
         state.markdown = buildMarkdown(state, cachedBody, state.settings);
         state.srt = buildSrt(cachedBody);
+        byId(ids.preview).value = buildSubtitlePreview(cachedBody, state.settings);
         return;
       }
     }
@@ -362,6 +475,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
   state.subtitleBody = body;
   state.markdown = buildMarkdown(state, body, state.settings);
   state.srt = buildSrt(body);
+  byId(ids.preview).value = buildSubtitlePreview(body, state.settings);
 }
 
 function getSubtitleCacheKey({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }) {
@@ -428,6 +542,63 @@ async function clearSubtitleCacheByKey(cacheKey) {
   }
 }
 
+async function clearSubtitleCache(bvid, cid, lang) {
+  const cacheKey = getSubtitleCacheKey({ bvid, cid, lang });
+  try {
+    await chrome.storage.local.remove(cacheKey);
+    console.info("[BOC] cleared subtitle cache", { cacheKey });
+  } catch (error) {
+    console.warn("[BOC] failed to clear subtitle cache", error);
+  }
+}
+
+function renderMeta() {
+  const meta = byId(ids.meta);
+  if (!state.bvid) {
+    meta.innerHTML = '<div class="boc-meta-item">尚未抓取视频信息</div>';
+    return;
+  }
+
+  const subtitleCount = state.subtitles.length;
+  meta.innerHTML = `
+    <div class="boc-meta-item"><strong>标题：</strong>${escapeHtml(state.title)}</div>
+    <div class="boc-meta-item"><strong>URL：</strong>${escapeHtml(location.href)}</div>
+    <div class="boc-meta-item"><strong>作者：</strong>${escapeHtml(state.author || "未知")}</div>
+    <div class="boc-meta-item"><strong>日期：</strong>${escapeHtml(state.uploadDate || "未知")}</div>
+    <div class="boc-meta-item"><strong>字幕轨：</strong>${subtitleCount}</div>
+  `;
+}
+
+function renderSubtitleSelect() {
+  const select = byId(ids.subtitleSelect);
+  const subtitles = state.subtitles || [];
+
+  if (subtitles.length === 0) {
+    select.innerHTML = '<option value="">暂无字幕</option>';
+    select.disabled = true;
+    return;
+  }
+
+  select.innerHTML = subtitles
+    .map((item) => {
+      const selectedById =
+        state.selectedSubtitleId && String(item.id) === String(state.selectedSubtitleId);
+      const selectedByUrl = item.subtitleUrl === state.selectedSubtitleUrl;
+      const selected = selectedById || selectedByUrl ? "selected" : "";
+      const label = item.lanDoc || item.lan || "unknown";
+      const isAi = isAiSubtitle(item);
+      const aiTag = isAi ? " [AI自动]" : "";
+      const optionLabel = `${label}${aiTag}`;
+      return `<option value="${escapeHtml(item.subtitleUrl)}" data-lang="${escapeHtml(
+        label
+      )}" data-id="${escapeHtml(String(item.id || ""))}" data-isai="${isAi}" ${selected}>${escapeHtml(
+        optionLabel
+      )}</option>`;
+    })
+    .join("");
+  select.disabled = false;
+}
+
 function getPopupPayload() {
   const subtitleOptions = (state.subtitles || []).map((item) => {
     const label = item.lanDoc || item.lan || "unknown";
@@ -457,6 +628,42 @@ function getPopupPayload() {
     srt: state.srt || "",
     subtitleOptions
   };
+}
+
+async function copyMarkdown() {
+  if (!state.markdown) {
+    setMessage("没有可复制的内容，请先刷新抓取。");
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(state.markdown);
+    setMessage("Markdown 已复制到剪贴板。");
+  } catch (error) {
+    setMessage(`复制失败：${error.message}`);
+  }
+}
+
+function downloadSrt() {
+  if (!state.srt) {
+    setMessage("没有可下载的字幕，请先刷新抓取。");
+    return;
+  }
+
+  const safeTitle = sanitizeFileName(state.title || state.bvid || "bilibili-subtitle");
+  const filename = `${safeTitle}.${state.selectedSubtitleLang || "subtitle"}.srt`;
+  const blob = new Blob([state.srt], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+
+  setMessage(`已下载：${filename}`);
 }
 
 async function sendToObsidian() {
@@ -502,15 +709,22 @@ async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content) {
 }
 
 function setBusyState(disabled) {
-  state.isBusy = Boolean(disabled);
+  byId(ids.copyBtn).disabled = disabled;
+  byId(ids.downloadBtn).disabled = disabled;
+  byId(ids.sendBtn).disabled = disabled;
+  byId(ids.refreshBtn).disabled = disabled;
+  byId(ids.settingsBtn).disabled = disabled;
+  byId(ids.subtitleSelect).disabled = disabled || state.subtitles.length === 0;
 }
 
 function setStatus(text) {
   state.statusText = String(text || "");
+  byId(ids.status).textContent = state.statusText;
 }
 
 function setMessage(text) {
   state.messageText = String(text || "");
+  byId(ids.message).textContent = state.messageText;
 }
 
 function sendRuntimeMessage(message) {
@@ -560,6 +774,14 @@ async function getSettings() {
   } catch (error) {
     return { ...DEFAULT_SETTINGS };
   }
+}
+
+function byId(id) {
+  const node = document.getElementById(id);
+  if (!node) {
+    throw new Error(`Missing node: ${id}`);
+  }
+  return node;
 }
 
 function extractBvid(url) {
@@ -1533,6 +1755,15 @@ function buildNoteFilename(meta) {
 
 function normalizeFolder(input) {
   return String(input || "").trim().replace(/^\/+|\/+$/g, "");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function escapeYaml(value) {

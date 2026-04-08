@@ -98,7 +98,9 @@ function bindRuntimeEvents() {
     if (message.type === "popup-refresh") {
       refreshClip()
         .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
-        .catch((error) => sendResponse({ ok: false, error: error.message, payload: getPopupPayload() }));
+        .catch((error) =>
+          sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
+        );
       return true;
     }
 
@@ -116,14 +118,18 @@ function bindRuntimeEvents() {
           renderSubtitleSelect();
           sendResponse({ ok: true, payload: getPopupPayload() });
         })
-        .catch((error) => sendResponse({ ok: false, error: error.message, payload: getPopupPayload() }));
+        .catch((error) =>
+          sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
+        );
       return true;
     }
 
     if (message.type === "popup-send-obsidian") {
       sendToObsidian()
         .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
-        .catch((error) => sendResponse({ ok: false, error: error.message, payload: getPopupPayload() }));
+        .catch((error) =>
+          sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
+        );
       return true;
     }
 
@@ -259,6 +265,12 @@ async function refreshClip() {
     state.cid = pickCidFromPages(meta.pages, pageIndex, meta.defaultCid);
     state.cidSource = "meta-pages";
     state.videoDuration = pickDurationFromPages(meta.pages, pageIndex, meta.defaultDuration);
+    if (!(state.videoDuration > 0)) {
+      state.videoDuration = readRuntimeVideoDuration();
+    }
+    if (!(state.videoDuration > 0)) {
+      throw new Error("无法获取当前视频时长，已停止抓取以避免串到错误字幕。");
+    }
 
     console.info("[BOC] resolved video ids", {
       url: location.href,
@@ -297,21 +309,9 @@ async function refreshClip() {
       }))
     );
 
-    // B站 API 有时不返回字幕列表，需要等待并重试
+    // 单源策略下，空字幕直接失败，避免空结果重试导致串轨。
     if (state.subtitles.length === 0) {
-      console.info("[BOC] subtitle tracks empty, waiting and retrying...");
-      // 等待 1 秒后重试
-      await sleep(1000);
-      subtitleBundle = await retryAsync(
-        () => fetchSubtitleBundle(state.bvid, state.cid, state.aid),
-        3,
-        800
-      );
-      state.subtitles = normalizeSubtitleTracks(subtitleBundle.tracks);
-      state.chapters = normalizeChapters(subtitleBundle.chapters);
-      if (state.subtitles.length === 0) {
-        throw new Error("这个视频暂时没有可用字幕。");
-      }
+      throw new Error("这个视频暂时没有可用字幕。");
     }
 
     // 显式点击“刷新抓取”时默认走网络，避免命中历史缓存导致字幕错位。
@@ -333,15 +333,14 @@ async function refreshClip() {
     try {
       selected = await tryLoadSubtitleCandidates(candidates, runId, forceRefresh);
     } catch (error) {
-      const message = String(error?.message || "");
+      const message = getErrorMessage(error, "");
       if (!message.includes("HTTP") && error?.code !== "SUBTITLE_DURATION_MISMATCH") {
         throw error;
       }
 
       // Retry because subtitle signed URLs may expire quickly or hit rate limit.
-      const preferPlayerV2 = error?.code === "SUBTITLE_DURATION_MISMATCH";
       subtitleBundle = await retryAsync(
-        () => fetchSubtitleBundle(state.bvid, state.cid, state.aid, { preferPlayerV2 }),
+        () => fetchSubtitleBundle(state.bvid, state.cid, state.aid),
         2,
         500
       );
@@ -379,7 +378,7 @@ async function refreshClip() {
       setStatus("抓取失败：未找到与当前视频时长匹配的字幕轨，可能该视频无可用字幕。");
       return;
     }
-    setStatus(`抓取失败：${error.message}`);
+    setStatus(`抓取失败：${getErrorMessage(error)}`);
   } finally {
     if (runId === state.fetchRunId) {
       setBusyState(false);
@@ -406,7 +405,7 @@ async function onSubtitleChange(event) {
     if (isStaleRunError(error)) {
       return;
     }
-    setStatus(`切换字幕失败：${error.message}`);
+    setStatus(`切换字幕失败：${getErrorMessage(error)}`);
   } finally {
     setBusyState(false);
   }
@@ -640,7 +639,7 @@ async function copyMarkdown() {
     await navigator.clipboard.writeText(state.markdown);
     setMessage("Markdown 已复制到剪贴板。");
   } catch (error) {
-    setMessage(`复制失败：${error.message}`);
+    setMessage(`复制失败：${getErrorMessage(error)}`);
   }
 }
 
@@ -691,7 +690,7 @@ async function sendToObsidian() {
       setMessage("扩展刚刚更新，请刷新当前页面后重试。");
       return;
     }
-    setMessage(`写入失败：${error.message}`);
+    setMessage(`写入失败：${getErrorMessage(error)}`);
   }
 }
 
@@ -704,7 +703,7 @@ async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content) {
     content
   });
   if (!resp?.ok) {
-    throw new Error(resp?.error || "Local API 写入失败");
+    throw new Error(toReadableText(resp?.error, "Local API 写入失败"));
   }
 }
 
@@ -725,6 +724,47 @@ function setStatus(text) {
 function setMessage(text) {
   state.messageText = String(text || "");
   byId(ids.message).textContent = state.messageText;
+}
+
+function toReadableText(value, fallback = "") {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text || text === "[object Object]") {
+      return fallback;
+    }
+    return text;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    const json = JSON.stringify(value);
+    if (json && json !== "{}") {
+      return json;
+    }
+  } catch {
+    // ignore
+  }
+  const text = String(value);
+  if (!text || text === "[object Object]") {
+    return fallback;
+  }
+  return text;
+}
+
+function getErrorMessage(error, fallback = "未知错误") {
+  const code = toReadableText(error?.code, "");
+  const message = toReadableText(error?.message, "");
+  if (message) {
+    return code ? `${message} (code: ${code})` : message;
+  }
+  if (code) {
+    return `code: ${code}`;
+  }
+  return toReadableText(error, fallback);
 }
 
 function sendRuntimeMessage(message) {
@@ -752,7 +792,7 @@ function requestOpenOptions() {
   sendRuntimeMessage({ type: "open-options" })
     .then((resp) => {
       if (!resp?.ok) {
-        setMessage(`打开设置失败：${resp?.error || "未知错误"}`);
+        setMessage(`打开设置失败：${toReadableText(resp?.error, "未知错误")}`);
       }
     })
     .catch((error) => {
@@ -760,7 +800,7 @@ function requestOpenOptions() {
         setMessage("扩展刚刚更新，请刷新当前页面后重试。");
         return;
       }
-      setMessage(`打开设置失败：${error.message}`);
+      setMessage(`打开设置失败：${getErrorMessage(error)}`);
     });
 }
 
@@ -821,7 +861,7 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
     } catch (error) {
       lastError = error;
       // 如果不是网络错误也不是可重试的业务错误，立即抛出
-      const isNetworkError = error?.message?.includes("请求失败");
+      const isNetworkError = getErrorMessage(error, "").includes("请求失败");
       const isRetryable = error?.retryable === true;
       if (!isNetworkError && !isRetryable) {
         throw error;
@@ -832,7 +872,7 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
       // 指数退避：delayMs * 2^(attempt-1)，最多等待 5 秒
       const backoffDelay = Math.min(delayMs * Math.pow(2, attempt - 1), 5000);
       console.info(`[BOC] retrying after ${backoffDelay}ms, attempt ${attempt + 1}/${retries}`, {
-        error: error.message,
+        error: getErrorMessage(error),
         code: error.code
       });
       await sleep(backoffDelay);
@@ -850,7 +890,7 @@ async function fetchVideoMeta(bvid) {
   console.info("[BOC] fetch video meta", { url, bvid });
   const payload = await fetchJson(url);
   if (payload.code !== 0) {
-    throw new Error(payload.message || "无法获取视频信息");
+    throw new Error(toReadableText(payload?.message, "无法获取视频信息"));
   }
 
   const data = payload.data || {};
@@ -956,13 +996,9 @@ function readUploadDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function fetchSubtitleBundle(bvid, cid, aid = "", options = {}) {
-  const requests = buildSubtitleInfoRequests({ bvid, cid, aid, ...options });
-  let fallbackAiTrack = null;
-  let fallbackChapters = [];
-  let lastError = null;
-
-  for (const request of requests) {
+async function fetchSubtitleBundle(bvid, cid, aid = "") {
+  const requests = buildSubtitleInfoRequests({ bvid, cid, aid });
+  const fetchByRequest = async (request) => {
     console.info("[BOC] fetch subtitles list", {
       source: request.source,
       url: request.url,
@@ -971,64 +1007,69 @@ async function fetchSubtitleBundle(bvid, cid, aid = "", options = {}) {
       aid
     });
 
-    try {
-      const payload = await fetchJson(request.url);
-      console.info("[BOC] subtitles API raw response", { source: request.source, payload });
-
-      if (payload.code !== 0) {
-        throw buildBiliApiError(payload, "无法获取字幕列表");
-      }
-
-      const chapters = mapChaptersFromPlayerData(payload.data);
-      if (fallbackChapters.length === 0 && chapters.length > 0) {
-        fallbackChapters = chapters;
-      }
-
-      const subtitles = mapSubtitleTracks(payload.data?.subtitle?.subtitles || [], request.source);
-      const withUrl = subtitles.filter((item) => item.subtitleUrl);
-      const aiNoUrl = subtitles.find((item) => isAiSubtitle(item) && !item.subtitleUrl);
-
-      // 参考稳定插件策略：单源优先，不混合多接口结果，避免出现“同语言双轨一对一错”。
-      if (withUrl.length > 0) {
-        return { tracks: withUrl, chapters };
-      }
-
-      if (!fallbackAiTrack && aiNoUrl) {
-        fallbackAiTrack = aiNoUrl;
-      }
-    } catch (error) {
-      lastError = error;
-      console.warn("[BOC] subtitles API request failed", {
-        source: request.source,
-        message: error.message
-      });
+    const payload = await fetchJson(request.url);
+    console.info("[BOC] subtitles API raw response", { source: request.source, payload });
+    if (payload.code !== 0) {
+      throw buildBiliApiError(payload, "无法获取字幕列表");
     }
+
+    const chapters = mapChaptersFromPlayerData(payload.data);
+    const subtitles = mapSubtitleTracks(payload.data?.subtitle?.subtitles || [], request.source);
+    const withUrl = subtitles.filter((item) => item.subtitleUrl);
+    return { source: request.source, chapters, withUrl };
+  };
+
+  if (requests.length === 0) {
+    return { tracks: [], chapters: [] };
   }
 
-  // 只有“检测到 AI 轨但没有 URL”时，才尝试 AI URL 兜底。
-  // 如果接口里本来就没有任何字幕轨，不再构造 AI 轨，避免串到别的视频字幕。
-  if (aid && cid && fallbackAiTrack) {
-    const aiUrl = await fetchAiSubtitleUrl(aid, cid);
-    if (aiUrl) {
-      return {
-        tracks: [{ ...fallbackAiTrack, subtitleUrl: aiUrl, source: "ai-search-stat" }],
-        chapters: fallbackChapters
-      };
+  const primaryRequest = requests[0];
+  try {
+    const primaryResult = await fetchByRequest(primaryRequest);
+    if (primaryResult.withUrl.length > 0) {
+      return { tracks: primaryResult.withUrl, chapters: primaryResult.chapters };
     }
-  }
+    // 主来源成功但无字幕：直接判定无字幕，不再跨源兜底。
+    return { tracks: [], chapters: primaryResult.chapters };
+  } catch (primaryError) {
+    console.warn("[BOC] subtitles API request failed", {
+      source: primaryRequest.source,
+      message: getErrorMessage(primaryError)
+    });
 
-  if (lastError) {
-    throw lastError;
+    // 仅当主来源请求失败时才尝试次来源。
+    if (requests.length > 1) {
+      const secondaryRequest = requests[1];
+      try {
+        const secondaryResult = await fetchByRequest(secondaryRequest);
+        if (secondaryResult.withUrl.length > 0) {
+          console.warn("[BOC] primary subtitles source failed, using fallback source", {
+            primary: primaryRequest.source,
+            fallback: secondaryRequest.source
+          });
+          return { tracks: secondaryResult.withUrl, chapters: secondaryResult.chapters };
+        }
+        return { tracks: [], chapters: secondaryResult.chapters };
+      } catch (secondaryError) {
+        console.warn("[BOC] fallback subtitles source failed", {
+          source: secondaryRequest.source,
+          message: getErrorMessage(secondaryError)
+        });
+        throw secondaryError;
+      }
+    }
+
+    throw primaryError;
   }
-  return { tracks: [], chapters: fallbackChapters };
 }
 
-function buildSubtitleInfoRequests({ bvid, cid, aid, preferPlayerV2 = false }) {
+function buildSubtitleInfoRequests({ bvid, cid, aid }) {
   const safeBvid = encodeURIComponent(String(bvid || ""));
   const safeCid = encodeURIComponent(String(cid || ""));
   const safeAid = encodeURIComponent(String(aid || ""));
   const requests = [];
 
+  // 参考 SubBatch：优先用 aid+cid 的 wbi 接口作为主来源。
   if (aid) {
     requests.push({
       source: "player-wbi-v2",
@@ -1040,6 +1081,7 @@ function buildSubtitleInfoRequests({ bvid, cid, aid, preferPlayerV2 = false }) {
     });
   }
 
+  // 仅在主来源不可用时再回退到 player-v2。
   requests.push({
     source: "player-v2",
     url:
@@ -1049,23 +1091,11 @@ function buildSubtitleInfoRequests({ bvid, cid, aid, preferPlayerV2 = false }) {
       (aid ? `&aid=${safeAid}` : "")
   });
 
-  if (preferPlayerV2) {
-    requests.sort((a, b) => {
-      if (a.source === "player-v2" && b.source !== "player-v2") {
-        return -1;
-      }
-      if (a.source !== "player-v2" && b.source === "player-v2") {
-        return 1;
-      }
-      return 0;
-    });
-  }
-
   return requests;
 }
 
 function buildBiliApiError(payload, fallbackMessage) {
-  const msg = payload?.message || fallbackMessage;
+  const msg = toReadableText(payload?.message, fallbackMessage);
   const error = new Error(msg);
   error.code = payload?.code;
   error.retryable = isRetryableError(payload?.code);
@@ -1131,30 +1161,6 @@ function normalizeChapters(chapters) {
   });
 
   return unique;
-}
-
-async function fetchAiSubtitleUrl(aid, cid) {
-  if (!aid || !cid) {
-    return "";
-  }
-
-  const url =
-    "https://api.bilibili.com/x/player/v2/ai/subtitle/search/stat" +
-    `?aid=${encodeURIComponent(String(aid))}` +
-    `&cid=${encodeURIComponent(String(cid))}`;
-
-  console.info("[BOC] fetch ai subtitle stat", { url, aid, cid });
-  try {
-    const payload = await fetchJson(url);
-    console.info("[BOC] ai subtitle stat raw response", { payload });
-    if (payload.code !== 0) {
-      throw buildBiliApiError(payload, "无法获取 AI 字幕地址");
-    }
-    return normalizeSubtitleUrl(payload.data?.subtitle_url || "");
-  } catch (error) {
-    console.warn("[BOC] ai subtitle stat request failed", { message: error.message });
-    return "";
-  }
 }
 
 function isRetryableError(code) {
@@ -1280,12 +1286,19 @@ async function tryLoadSubtitleCandidates(candidates, runId, forceRefresh) {
       return item;
     } catch (error) {
       lastError = error;
-      console.warn("[BOC] subtitle track rejected", {
+      const reasonCode = toReadableText(error?.code, "");
+      const reasonMessage = getErrorMessage(error, "unknown");
+      const meta = {
         id: item.id,
         lan: item.lan,
         lanDoc: item.lanDoc,
-        reason: error?.code || error?.message || "unknown"
-      });
+        reason: reasonCode || reasonMessage
+      };
+      if (reasonCode === "SUBTITLE_DURATION_MISMATCH") {
+        console.info(`[BOC] subtitle track skipped ${JSON.stringify(meta)}`);
+      } else {
+        console.warn(`[BOC] subtitle track rejected ${JSON.stringify(meta)}`);
+      }
       ensureRunActive(runId);
       continue;
     }
@@ -1295,46 +1308,6 @@ async function tryLoadSubtitleCandidates(candidates, runId, forceRefresh) {
     throw lastError;
   }
   throw new Error("这个视频暂时没有可用字幕。");
-}
-
-function pickPreferredAiSubtitle(
-  aiTracks,
-  { previousId = "", previousUrl = "", previousLang = "" } = {}
-) {
-  const tracks = aiTracks || [];
-  if (tracks.length === 0) {
-    return null;
-  }
-
-  if (previousId) {
-    const byId = tracks.find((item) => String(item.id || "") === String(previousId));
-    if (byId) {
-      return byId;
-    }
-  }
-
-  const prevUrlKey = normalizeSubtitleUrlForCache(previousUrl);
-  if (prevUrlKey) {
-    const byUrl = tracks.find(
-      (item) => normalizeSubtitleUrlForCache(item.subtitleUrl) === prevUrlKey
-    );
-    if (byUrl) {
-      return byUrl;
-    }
-  }
-
-  const normalizedPrevLang = String(previousLang || "").trim().toLowerCase();
-  if (normalizedPrevLang) {
-    const byLang = tracks.find((item) => {
-      const label = String(item.lanDoc || item.lan || "").trim().toLowerCase();
-      return label === normalizedPrevLang;
-    });
-    if (byLang) {
-      return byLang;
-    }
-  }
-
-  return tracks[0];
 }
 
 function isAiSubtitle(item) {
@@ -1396,18 +1369,18 @@ function validateSubtitleByDuration(body, videoDuration) {
     return { ok: true, reason: "skip-no-video-duration", videoDuration: duration, maxTo };
   }
 
-  const upperTolerance = Math.max(20, duration * 0.25);
+  const upperTolerance = Math.max(12, duration * 0.15);
   if (maxTo > duration + upperTolerance) {
     return { ok: false, reason: "too-long", videoDuration: duration, maxTo };
   }
 
   let minCoverageRatio = 0;
   if (duration >= 600) {
-    minCoverageRatio = 0.12;
-  } else if (duration >= 300) {
-    minCoverageRatio = 0.15;
-  } else if (duration >= 180) {
     minCoverageRatio = 0.18;
+  } else if (duration >= 300) {
+    minCoverageRatio = 0.22;
+  } else if (duration >= 180) {
+    minCoverageRatio = 0.25;
   }
 
   if (minCoverageRatio > 0 && maxTo < duration * minCoverageRatio) {
@@ -1415,6 +1388,15 @@ function validateSubtitleByDuration(body, videoDuration) {
   }
 
   return { ok: true, reason: "ok", videoDuration: duration, maxTo };
+}
+
+function readRuntimeVideoDuration() {
+  const video = document.querySelector("video");
+  const duration = Number(video?.duration);
+  if (Number.isFinite(duration) && duration > 0) {
+    return duration;
+  }
+  return 0;
 }
 
 async function fetchSubtitleBody(url) {
@@ -1443,7 +1425,7 @@ async function fetchJsonInBackground(url) {
   try {
     const resp = await sendRuntimeMessage({ type: "fetch-json", url });
     if (!resp?.ok) {
-      throw new Error(resp?.error || "Background fetch failed");
+      throw new Error(toReadableText(resp?.error, "Background fetch failed"));
     }
     return resp.data;
   } catch (error) {

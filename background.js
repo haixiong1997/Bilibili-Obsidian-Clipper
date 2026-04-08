@@ -58,7 +58,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return false;
     }
 
-    fetch(url, { method: "GET", credentials: "include", cache: "no-store" })
+    const isBiliRequest = /(?:api\.bilibili\.com|hdslb\.com)/.test(url);
+    const headers = new Headers();
+    if (isBiliRequest) {
+      headers.set("Accept", "application/json, text/plain, */*");
+      headers.set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
+      headers.set("Cache-Control", "no-cache");
+      headers.set("Pragma", "no-cache");
+    }
+
+    const fetchOptions = {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store"
+    };
+    if (headers.size > 0) {
+      fetchOptions.headers = headers;
+    }
+    if (isBiliRequest) {
+      fetchOptions.referrer = "https://www.bilibili.com/";
+      fetchOptions.referrerPolicy = "strict-origin-when-cross-origin";
+    }
+
+    fetch(url, fetchOptions)
       .then(async (response) => {
         if (!response.ok) {
           sendResponse({ ok: false, error: `HTTP ${response.status}` });

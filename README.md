@@ -13,19 +13,24 @@
 
 ### 方式 A：从 Release 安装（推荐）
 
-1. 下载发布包：`release/bilibili-obsidian-clipper-v1.0.10.zip`
+1. 在 GitHub 的 `Releases` 页面下载最新 zip 包
 2. 解压到任意本地目录
 3. 打开 `chrome://extensions/`
 4. 开启“开发者模式”
 5. 点击“加载已解压的扩展程序”
-6. 选择刚刚解压后的目录
+6. 选择解压后的扩展目录（包含 `manifest.json`）
 
 ### 方式 B：从源码安装
 
 1. 打开 `chrome://extensions/`
 2. 开启“开发者模式”
 3. 点击“加载已解压的扩展程序”
-4. 选择本目录 `bilibili-obsidian-clipper`
+4. 选择本仓库下的 `extension/` 目录
+
+## 项目结构
+
+- `README.md` / `LICENSE`：项目说明与许可证
+- `extension/`：插件源码（manifest、js、css、icons）
 
 ## Obsidian 配置
 

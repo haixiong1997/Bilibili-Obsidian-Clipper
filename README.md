@@ -13,7 +13,7 @@
 
 ## 功能图片演示
 
-![Bilibili Obsidian Clipper 功能演示](docs/images/feature-demo.png)
+![Bilibili Obsidian Clipper 功能演示](docs/images/feature-demo-v2.png)
 
 ## 安装方式
 

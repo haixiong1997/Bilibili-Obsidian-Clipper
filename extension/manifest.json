@@ -3,6 +3,14 @@
   "name": "Bilibili Obsidian Clipper",
   "version": "1.0.12",
   "description": "在 B 站视频页抓取字幕，预览后一键保存到 Obsidian。",
+  
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "bilibili-obsidian-clipper@github.com",
+      "strict_min_version": "109.0"
+    }
+  },
+  
   "permissions": ["storage"],
   "host_permissions": [
     "https://www.bilibili.com/*",
@@ -14,7 +22,8 @@
     "https://localhost/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
   },
   "icons": {
     "16": "icons/icon16.png",

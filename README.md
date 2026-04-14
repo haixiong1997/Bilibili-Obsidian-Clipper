@@ -1,4 +1,6 @@
-# Bilibili Obsidian Clipper
+# Bilibili Obsidian Clipper｜一键保存B站字幕
+
+Chrome 插件市场已上线：[点击访问](https://chromewebstore.google.com/detail/jokophbofiphenlplmohabdcmalcbenl?utm_source=item-share-cb)
 
 [![GitHub all releases downloads](https://img.shields.io/github/downloads/haixiong1997/Bilibili-Obsidian-Clipper/total?style=flat-square)](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper/releases)
 

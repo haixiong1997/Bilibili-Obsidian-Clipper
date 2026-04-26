@@ -41,8 +41,16 @@
         </ol>
       </section>
 
-      <label for="noteFolder">笔记目录（用于自动写入）</label>
-      <input id="noteFolder" type="text" placeholder="例如：Clippings/Bilibili" />
+      <section class="field-group">
+        <div class="folder-head">
+          <div>
+            <h2>保存目录</h2>
+            <p class="hint">可配置多组 Obsidian 路径，并设置默认目录；保存视频时可在弹窗里切换。</p>
+          </div>
+          <button id="addNoteFolderBtn" class="secondary-btn" type="button">新增目录</button>
+        </div>
+        <div id="noteFolderList" class="folder-list"></div>
+      </section>
 
       <label for="obsidianApiBaseUrl">Local REST API 地址</label>
       <input id="obsidianApiBaseUrl" type="text" placeholder="例如：http://127.0.0.1:27123" />

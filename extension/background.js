@@ -1,5 +1,13 @@
 const DEFAULT_SYNC_SETTINGS = {
   noteFolder: "Clippings/Bilibili",
+  noteFolders: [
+    {
+      id: "default-note-folder",
+      label: "默认目录",
+      path: "Clippings/Bilibili"
+    }
+  ],
+  defaultNoteFolderId: "default-note-folder",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   tags: "clippings,bilibili",
   downloadFormat: "srt",
@@ -197,8 +205,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function initializeSettingsStorage() {
   const syncCurrent = await chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS);
   const localCurrent = await chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS);
+  const normalizedSync = normalizeSettingsPayload({ ...DEFAULT_SYNC_SETTINGS, ...syncCurrent });
 
-  await chrome.storage.sync.set({ ...DEFAULT_SYNC_SETTINGS, ...syncCurrent });
+  await chrome.storage.sync.set(normalizedSync);
   await chrome.storage.local.set({
     obsidianApiKey: toString(localCurrent.obsidianApiKey)
   });
@@ -220,7 +229,7 @@ async function getMergedSettings() {
     chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS)
   ]);
 
-  const merged = { ...DEFAULT_SYNC_SETTINGS, ...syncSettings };
+  const merged = normalizeSettingsPayload({ ...DEFAULT_SYNC_SETTINGS, ...syncSettings });
   merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
   let apiKey = toString(localSettings.obsidianApiKey).trim();
   const legacySyncApiKey = toString(syncSettings.obsidianApiKey).trim();
@@ -238,7 +247,7 @@ async function getMergedSettings() {
 }
 
 async function saveSettings(settings) {
-  const payload = settings && typeof settings === "object" ? settings : {};
+  const payload = normalizeSettingsPayload(settings && typeof settings === "object" ? settings : {});
   const syncPayload = { ...payload };
   delete syncPayload.obsidianApiKey;
   syncPayload.downloadFormat = normalizeDownloadFormat(syncPayload.downloadFormat);
@@ -257,6 +266,85 @@ function toString(value) {
 
 function normalizeDownloadFormat(value) {
   return value === "txt" ? "txt" : "srt";
+}
+
+function normalizeSettingsPayload(raw) {
+  const payload = raw && typeof raw === "object" ? raw : {};
+  const normalizedFolders = normalizeNoteFolders(payload.noteFolders, payload.noteFolder);
+  const defaultNoteFolderId = resolveDefaultNoteFolderId(
+    payload.defaultNoteFolderId,
+    normalizedFolders
+  );
+  const defaultNoteFolder = normalizedFolders.find((item) => item.id === defaultNoteFolderId);
+
+  return {
+    ...DEFAULT_SYNC_SETTINGS,
+    ...payload,
+    noteFolders: normalizedFolders,
+    defaultNoteFolderId,
+    noteFolder: defaultNoteFolder?.path || DEFAULT_SYNC_SETTINGS.noteFolder
+  };
+}
+
+function normalizeNoteFolders(noteFolders, legacyNoteFolder = "") {
+  const source = Array.isArray(noteFolders) ? noteFolders : [];
+  const normalized = source
+    .map((item, index) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const path = toString(item.path).trim();
+      if (!path) {
+        return null;
+      }
+
+      const id = toString(item.id).trim() || `note-folder-${index + 1}`;
+      const label = toString(item.label).trim() || `目录 ${index + 1}`;
+      return { id, label, path };
+    })
+    .filter(Boolean);
+
+  if (normalized.length > 0) {
+    return dedupeNoteFolders(normalized);
+  }
+
+  const fallbackPath = toString(legacyNoteFolder).trim() || DEFAULT_SYNC_SETTINGS.noteFolder;
+  return [
+    {
+      id: DEFAULT_SYNC_SETTINGS.defaultNoteFolderId,
+      label: "默认目录",
+      path: fallbackPath
+    }
+  ];
+}
+
+function dedupeNoteFolders(noteFolders) {
+  const seen = new Set();
+  const result = [];
+
+  noteFolders.forEach((item, index) => {
+    let id = toString(item.id).trim() || `note-folder-${index + 1}`;
+    while (seen.has(id)) {
+      id = `${id}-${index + 1}`;
+    }
+    seen.add(id);
+    result.push({
+      id,
+      label: toString(item.label).trim() || `目录 ${index + 1}`,
+      path: toString(item.path).trim()
+    });
+  });
+
+  return result;
+}
+
+function resolveDefaultNoteFolderId(defaultNoteFolderId, noteFolders) {
+  const preferredId = toString(defaultNoteFolderId).trim();
+  if (preferredId && noteFolders.some((item) => item.id === preferredId)) {
+    return preferredId;
+  }
+  return noteFolders[0]?.id || DEFAULT_SYNC_SETTINGS.defaultNoteFolderId;
 }
 
 function formatConnectionError(error) {

@@ -1,5 +1,13 @@
 const DEFAULT_SETTINGS = {
   noteFolder: "Clippings/Bilibili",
+  noteFolders: [
+    {
+      id: "default-note-folder",
+      label: "默认目录",
+      path: "Clippings/Bilibili"
+    }
+  ],
+  defaultNoteFolderId: "default-note-folder",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   obsidianApiKey: "",
   tags: "clippings,bilibili",
@@ -43,10 +51,110 @@ const state = {
   markdown: "",
   srt: "",
   txt: "",
+  sourceUrl: location.href,
+  page: 1,
+  collection: null,
+  batchImport: createIdleBatchImportState(),
   statusText: "准备就绪，点击“刷新抓取”开始。",
   messageText: "",
   settings: { ...DEFAULT_SETTINGS }
 };
+
+function createIdleBatchImportState() {
+  return {
+    running: false,
+    total: 0,
+    completed: 0,
+    succeeded: 0,
+    failed: 0,
+    currentTitle: "",
+    lastResult: null,
+    results: [],
+    startedAt: 0,
+    finishedAt: 0
+  };
+}
+
+function normalizeSettings(rawSettings) {
+  const settings = rawSettings && typeof rawSettings === "object" ? rawSettings : {};
+  const noteFolders = normalizeNoteFolderOptions(settings.noteFolders, settings.noteFolder);
+  const defaultNoteFolderId = resolveDefaultNoteFolderId(settings.defaultNoteFolderId, noteFolders);
+  const defaultNoteFolder = noteFolders.find((item) => item.id === defaultNoteFolderId);
+
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    noteFolders,
+    defaultNoteFolderId,
+    noteFolder: defaultNoteFolder?.path || DEFAULT_SETTINGS.noteFolder
+  };
+}
+
+function normalizeNoteFolderOptions(noteFolders, legacyNoteFolder = "") {
+  const source = Array.isArray(noteFolders) ? noteFolders : [];
+  const normalized = source
+    .map((item, index) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const path = String(item.path || "").trim();
+      if (!path) {
+        return null;
+      }
+
+      return {
+        id: String(item.id || `note-folder-${index + 1}`).trim() || `note-folder-${index + 1}`,
+        label: String(item.label || `目录 ${index + 1}`).trim() || `目录 ${index + 1}`,
+        path
+      };
+    })
+    .filter(Boolean);
+
+  if (normalized.length > 0) {
+    return dedupeNoteFolderOptions(normalized);
+  }
+
+  const fallbackPath = String(legacyNoteFolder || "").trim() || DEFAULT_SETTINGS.noteFolder;
+  return [
+    {
+      id: DEFAULT_SETTINGS.defaultNoteFolderId,
+      label: "默认目录",
+      path: fallbackPath
+    }
+  ];
+}
+
+function dedupeNoteFolderOptions(noteFolders) {
+  const seen = new Set();
+  return noteFolders.map((item, index) => {
+    let id = String(item.id || `note-folder-${index + 1}`).trim() || `note-folder-${index + 1}`;
+    while (seen.has(id)) {
+      id = `${id}-${index + 1}`;
+    }
+    seen.add(id);
+    return {
+      id,
+      label: String(item.label || `目录 ${index + 1}`).trim() || `目录 ${index + 1}`,
+      path: String(item.path || "").trim()
+    };
+  });
+}
+
+function resolveDefaultNoteFolderId(defaultNoteFolderId, noteFolders) {
+  const preferredId = String(defaultNoteFolderId || "").trim();
+  if (preferredId && noteFolders.some((item) => item.id === preferredId)) {
+    return preferredId;
+  }
+  return noteFolders[0]?.id || DEFAULT_SETTINGS.defaultNoteFolderId;
+}
+
+function getResolvedNoteFolder(settings, preferredNoteFolderId = "") {
+  const normalized = normalizeSettings(settings);
+  const targetId = String(preferredNoteFolderId || "").trim();
+  const matched = normalized.noteFolders.find((item) => item.id === targetId);
+  return matched || normalized.noteFolders.find((item) => item.id === normalized.defaultNoteFolderId) || null;
+}
 
 function shouldDebugLog() {
   return Boolean(state.settings?.enableDebugLogs);
@@ -144,12 +252,31 @@ function bindRuntimeEvents() {
     }
 
     if (message.type === "popup-send-obsidian") {
-      sendToObsidian()
+      sendToObsidian({
+        noteFolderId: String(message.noteFolderId || "").trim()
+      })
         .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
         .catch((error) =>
           sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
         );
       return true;
+    }
+
+    if (message.type === "popup-start-batch-import") {
+      const selectedEpisodeIds = Array.isArray(message.selectedEpisodeIds)
+        ? message.selectedEpisodeIds.map((item) => String(item || "").trim()).filter(Boolean)
+        : [];
+      const preferredSubtitleLang = String(message.preferredSubtitleLang || "").trim();
+      const noteFolderId = String(message.noteFolderId || "").trim();
+
+      startBatchImport({ selectedEpisodeIds, preferredSubtitleLang, noteFolderId }).catch((error) => {
+        logWarn("[BOC] batch import failed", {
+          message: getErrorMessage(error),
+          code: error?.code
+        });
+      });
+      sendResponse({ ok: true, payload: getPopupPayload() });
+      return false;
     }
 
     return false;
@@ -241,6 +368,10 @@ function resetClipState() {
   state.markdown = "";
   state.srt = "";
   state.txt = "";
+  state.sourceUrl = location.href;
+  state.page = 1;
+  state.collection = null;
+  state.batchImport = createIdleBatchImportState();
 
   renderMeta();
   renderSubtitleSelect();
@@ -254,6 +385,7 @@ async function refreshClip() {
     setBusyState(true);
     setMessage("");
     setStatus("正在抓取视频信息...");
+    state.batchImport = createIdleBatchImportState();
     state.settings = await getSettings();
     ensureRunActive(runId);
 
@@ -279,6 +411,8 @@ async function refreshClip() {
     state.author = meta.author || readVideoAuthor();
     state.uploadDate = meta.uploadDate || readUploadDate();
     state.description = meta.description || "";
+    state.sourceUrl = normalizeVideoUrl({ bvid: state.bvid, page: pageIndex });
+    state.collection = meta.collection || null;
     let resolvedPageIndex = pageIndex;
     if ((meta.pages || []).length > 1 && !hasPageParam) {
       // B 站多分P中，P1 常见为无 ?p= 参数，此时默认按 P1 解析。
@@ -286,6 +420,7 @@ async function refreshClip() {
       logInfo("[BOC] multi-page video without p param, fallback to P1");
     }
 
+    state.page = resolvedPageIndex;
     state.cid = pickCidFromPages(meta.pages, resolvedPageIndex, meta.defaultCid);
     state.cidSource = "meta-pages";
     state.videoDuration = pickDurationFromPages(meta.pages, resolvedPageIndex, meta.defaultDuration);
@@ -466,7 +601,10 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
         state.selectedSubtitleUrl = url;
         state.selectedSubtitleLang = lang;
         state.subtitleBody = cachedBody;
-        state.markdown = buildMarkdown(state, cachedBody, state.settings);
+        state.markdown = buildMarkdown(state, cachedBody, state.settings, {
+          sourceUrl: state.sourceUrl,
+          page: state.page
+        });
         state.srt = buildSrt(cachedBody);
         state.txt = buildTxt(cachedBody, state.settings);
         byId(ids.preview).value = buildSubtitlePreview(cachedBody, state.settings);
@@ -497,7 +635,10 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
   state.selectedSubtitleUrl = url;
   state.selectedSubtitleLang = lang;
   state.subtitleBody = body;
-  state.markdown = buildMarkdown(state, body, state.settings);
+  state.markdown = buildMarkdown(state, body, state.settings, {
+    sourceUrl: state.sourceUrl,
+    page: state.page
+  });
   state.srt = buildSrt(body);
   state.txt = buildTxt(body, state.settings);
   byId(ids.preview).value = buildSubtitlePreview(body, state.settings);
@@ -587,7 +728,7 @@ function renderMeta() {
   const subtitleCount = state.subtitles.length;
   meta.innerHTML = `
     <div class="boc-meta-item"><strong>标题：</strong>${escapeHtml(state.title)}</div>
-    <div class="boc-meta-item"><strong>URL：</strong>${escapeHtml(location.href)}</div>
+    <div class="boc-meta-item"><strong>URL：</strong>${escapeHtml(state.sourceUrl || location.href)}</div>
     <div class="boc-meta-item"><strong>作者：</strong>${escapeHtml(state.author || "未知")}</div>
     <div class="boc-meta-item"><strong>日期：</strong>${escapeHtml(state.uploadDate || "未知")}</div>
     <div class="boc-meta-item"><strong>字幕轨：</strong>${subtitleCount}</div>
@@ -641,7 +782,7 @@ function getPopupPayload() {
   });
 
   return {
-    url: location.href,
+    url: state.sourceUrl || location.href,
     title: state.title || "",
     author: state.author || "",
     uploadDate: state.uploadDate || "",
@@ -653,8 +794,351 @@ function getPopupPayload() {
     srt: state.srt || "",
     txt: state.txt || "",
     downloadFormat: normalizeDownloadFormat(state.settings?.downloadFormat),
-    subtitleOptions
+    noteFolderOptions: (state.settings?.noteFolders || []).map((item) => ({
+      id: String(item.id || ""),
+      label: String(item.label || ""),
+      path: String(item.path || ""),
+      selected: String(item.id || "") === String(state.settings?.defaultNoteFolderId || "")
+    })),
+    subtitleOptions,
+    collection: state.collection,
+    batchImport: buildBatchImportPayload(state.batchImport)
   };
+}
+
+function buildBatchImportPayload(batchImport) {
+  const safe = batchImport && typeof batchImport === "object" ? batchImport : createIdleBatchImportState();
+  return {
+    running: Boolean(safe.running),
+    total: Number(safe.total || 0) || 0,
+    completed: Number(safe.completed || 0) || 0,
+    succeeded: Number(safe.succeeded || 0) || 0,
+    failed: Number(safe.failed || 0) || 0,
+    currentTitle: String(safe.currentTitle || ""),
+    lastResult: safe.lastResult || null,
+    results: Array.isArray(safe.results) ? safe.results : []
+  };
+}
+
+async function startBatchImport({ selectedEpisodeIds, preferredSubtitleLang, noteFolderId = "" }) {
+  if (state.batchImport?.running) {
+    throw new Error("批量导入正在进行中。");
+  }
+
+  const collection = state.collection;
+  if (!collection || !Array.isArray(collection.items) || collection.items.length === 0) {
+    throw new Error("当前视频不在支持的合集里。");
+  }
+
+  const selectedSet = new Set((selectedEpisodeIds || []).map((item) => String(item || "").trim()));
+  const targets = collection.items.filter((item) => selectedSet.has(String(item.episodeId || "")));
+  if (targets.length === 0) {
+    throw new Error("请先选择要导入的合集视频。");
+  }
+
+  state.settings = await getSettings();
+  const resolvedNoteFolder = getResolvedNoteFolder(state.settings, noteFolderId);
+  const baseUrl = String(state.settings.obsidianApiBaseUrl || "").trim();
+  const apiKey = String(state.settings.obsidianApiKey || "").trim();
+  if (!baseUrl || !apiKey) {
+    setMessage("请先在设置中填写 Obsidian Local REST API 地址和 API Key。");
+    requestOpenOptions();
+    throw new Error("缺少 Obsidian Local REST API 配置。");
+  }
+  if (!resolvedNoteFolder?.path) {
+    throw new Error("请先在设置中配置至少一个保存目录。");
+  }
+
+  const runId = state.fetchRunId;
+  const batchState = createIdleBatchImportState();
+  batchState.running = true;
+  batchState.total = targets.length;
+  batchState.startedAt = Date.now();
+  state.batchImport = batchState;
+  setStatus(`正在导入 0/${targets.length}`);
+  setMessage(`正在批量导入合集，共 ${targets.length} 集。`);
+
+  try {
+    for (const target of targets) {
+      ensureRunActive(runId);
+      batchState.currentTitle = target.title || target.bvid || "未命名视频";
+      setStatus(`正在导入 ${batchState.completed + 1}/${batchState.total}`);
+      setMessage(`正在导入 ${batchState.completed + 1}/${batchState.total}：${batchState.currentTitle}`);
+
+      try {
+        const result = await importCollectionEpisodeToObsidian({
+          target,
+          collection,
+          settings: state.settings,
+          noteFolder: resolvedNoteFolder,
+          preferredSubtitleLang,
+          runId
+        });
+        batchState.succeeded += 1;
+        batchState.lastResult = result;
+        batchState.results.push(result);
+      } catch (error) {
+        if (isStaleRunError(error)) {
+          throw error;
+        }
+        const failure = {
+          ok: false,
+          episodeId: target.episodeId,
+          title: target.title || target.bvid || "未命名视频",
+          error: getErrorMessage(error)
+        };
+        batchState.failed += 1;
+        batchState.lastResult = failure;
+        batchState.results.push(failure);
+        logWarn("[BOC] batch item failed", failure);
+      } finally {
+        batchState.completed += 1;
+      }
+    }
+  } catch (error) {
+    if (isStaleRunError(error)) {
+      throw error;
+    }
+    batchState.running = false;
+    batchState.currentTitle = "";
+    batchState.finishedAt = Date.now();
+    setStatus(`批量导入失败：${getErrorMessage(error)}`);
+    setMessage(`批量导入失败：${getErrorMessage(error)}`);
+    throw error;
+  }
+
+  ensureRunActive(runId);
+  batchState.running = false;
+  batchState.currentTitle = "";
+  batchState.finishedAt = Date.now();
+  setStatus(`批量导入完成：成功 ${batchState.succeeded}，失败 ${batchState.failed}`);
+  setMessage(`批量导入完成：成功 ${batchState.succeeded}，失败 ${batchState.failed}。`);
+}
+
+async function importCollectionEpisodeToObsidian({
+  target,
+  collection,
+  settings,
+  noteFolder,
+  preferredSubtitleLang,
+  runId
+}) {
+  const meta = await retryAsync(() => fetchVideoMeta(target.bvid), 2, 250);
+  ensureRunActive(runId);
+
+  const page = Number(target.page || 1) > 0 ? Number(target.page) : 1;
+  const aid = meta.aid || target.aid || "";
+  const cid = pickCidFromPages(meta.pages, page, target.cid || meta.defaultCid);
+  const videoDuration =
+    pickDurationFromPages(meta.pages, page, target.duration || meta.defaultDuration) ||
+    Number(target.duration || 0) ||
+    Number(meta.defaultDuration || 0) ||
+    0;
+
+  if (!(videoDuration > 0)) {
+    throw new Error("无法获取视频时长，已停止抓取以避免串到错误字幕。");
+  }
+
+  const subtitleData = await resolveSubtitleForTarget({
+    bvid: target.bvid,
+    aid,
+    cid,
+    videoDuration,
+    preferredSubtitleLang,
+    runId
+  });
+  ensureRunActive(runId);
+
+  const sourceUrl = normalizeVideoUrl({ bvid: target.bvid, page });
+  const noteMeta = {
+    bvid: target.bvid,
+    aid,
+    cid,
+    title: meta.title || target.title || target.bvid || "未命名视频",
+    author: meta.author || "未知",
+    uploadDate: meta.uploadDate || target.uploadDate || "",
+    description: meta.description || "",
+    selectedSubtitleLang:
+      subtitleData.track?.lanDoc || subtitleData.track?.lan || preferredSubtitleLang || "unknown",
+    chapters: subtitleData.chapters || [],
+    videoDuration,
+    sourceUrl,
+    page
+  };
+
+  const markdown = buildMarkdown(noteMeta, subtitleData.body, settings, {
+    sourceUrl,
+    page,
+    collectionContext: {
+      title: collection?.title || "",
+      index: target.index,
+      total: Array.isArray(collection?.items) ? collection.items.length : 0
+    }
+  });
+  const filename = buildNoteFilename(noteMeta, {
+    collectionContext: {
+      title: collection?.title || "",
+      index: target.index,
+      total: Array.isArray(collection?.items) ? collection.items.length : 0
+    }
+  });
+  const folder = normalizeFolder(noteFolder?.path || settings.noteFolder || "");
+  const filepath = folder ? `${folder}/${filename}` : filename;
+  await writeNoteByLocalApi(settings.obsidianApiBaseUrl, settings.obsidianApiKey, filepath, markdown);
+
+  return {
+    ok: true,
+    episodeId: target.episodeId,
+    title: noteMeta.title,
+    filepath
+  };
+}
+
+async function resolveSubtitleForTarget({
+  bvid,
+  aid,
+  cid,
+  videoDuration,
+  preferredSubtitleLang,
+  runId
+}) {
+  let subtitleBundle = await retryAsync(() => fetchSubtitleBundle(bvid, cid, aid), 3, 500);
+  ensureRunActive(runId);
+
+  let subtitles = normalizeSubtitleTracks(subtitleBundle.tracks);
+  let chapters = normalizeChapters(subtitleBundle.chapters);
+  if (subtitles.length === 0) {
+    throw new Error("这个视频暂时没有可用字幕。");
+  }
+
+  const pickTargetTrack = (tracks, previousTrack = null) => {
+    const preferred = pickPreferredSubtitle(tracks, {
+      previousId: previousTrack?.id || "",
+      previousUrl: previousTrack?.subtitleUrl || "",
+      previousLang: previousTrack?.lanDoc || previousTrack?.lan || preferredSubtitleLang || ""
+    });
+    if (!preferred) {
+      throw new Error("这个视频暂时没有可用字幕。");
+    }
+    return preferred;
+  };
+
+  let preferred = pickTargetTrack(subtitles);
+  try {
+    const loaded = await tryLoadSubtitleCandidatesForTarget(
+      buildSubtitleCandidates(subtitles, preferred),
+      { bvid, cid, videoDuration },
+      runId,
+      true
+    );
+    return { ...loaded, chapters };
+  } catch (error) {
+    const message = getErrorMessage(error, "");
+    if (!message.includes("HTTP") && error?.code !== "SUBTITLE_DURATION_MISMATCH") {
+      throw error;
+    }
+  }
+
+  subtitleBundle = await retryAsync(() => fetchSubtitleBundle(bvid, cid, aid), 2, 500);
+  ensureRunActive(runId);
+  subtitles = normalizeSubtitleTracks(subtitleBundle.tracks);
+  chapters = normalizeChapters(subtitleBundle.chapters);
+  if (subtitles.length === 0) {
+    throw new Error("这个视频暂时没有可用字幕。");
+  }
+
+  preferred = pickTargetTrack(subtitles, preferred);
+  const loaded = await tryLoadSubtitleCandidatesForTarget(
+    buildSubtitleCandidates(subtitles, preferred),
+    { bvid, cid, videoDuration },
+    runId,
+    true
+  );
+  return { ...loaded, chapters };
+}
+
+async function tryLoadSubtitleCandidatesForTarget(candidates, target, runId, forceRefresh) {
+  let lastError = null;
+  for (const item of candidates || []) {
+    try {
+      logInfo("[BOC] try batch subtitle track", {
+        id: item.id,
+        lan: item.lan,
+        lanDoc: item.lanDoc,
+        bvid: target.bvid
+      });
+      const body = await loadSubtitleForTarget({
+        bvid: target.bvid,
+        cid: target.cid,
+        videoDuration: target.videoDuration,
+        url: item.subtitleUrl,
+        lang: item.lanDoc || item.lan || "unknown",
+        subtitleId: item.id,
+        forceRefresh
+      });
+      ensureRunActive(runId);
+      return { track: item, body };
+    } catch (error) {
+      lastError = error;
+      ensureRunActive(runId);
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+  throw new Error("这个视频暂时没有可用字幕。");
+}
+
+async function loadSubtitleForTarget({
+  bvid,
+  cid,
+  videoDuration,
+  url,
+  lang,
+  subtitleId = "",
+  forceRefresh = false
+}) {
+  if (!url) {
+    throw new Error("字幕 URL 为空。");
+  }
+
+  const cacheKey = getSubtitleCacheKey({
+    bvid,
+    cid,
+    subtitleId,
+    subtitleUrl: url,
+    lang
+  });
+
+  if (!forceRefresh) {
+    const cachedBody = await loadSubtitleFromCache(cacheKey);
+    if (cachedBody && Array.isArray(cachedBody) && cachedBody.length > 0) {
+      const cachedCheck = validateSubtitleByDuration(cachedBody, videoDuration);
+      if (!cachedCheck.ok) {
+        await clearSubtitleCacheByKey(cacheKey);
+      } else {
+        return cachedBody;
+      }
+    }
+  }
+
+  const subtitle = await fetchSubtitleBody(url);
+  const body = Array.isArray(subtitle.body) ? subtitle.body : [];
+  if (body.length === 0) {
+    throw new Error("字幕文件为空。");
+  }
+
+  const durationCheck = validateSubtitleByDuration(body, videoDuration);
+  if (!durationCheck.ok) {
+    const mismatchError = new Error("字幕时长与当前视频不匹配。");
+    mismatchError.code = "SUBTITLE_DURATION_MISMATCH";
+    mismatchError.details = durationCheck;
+    throw mismatchError;
+  }
+
+  await saveSubtitleToCache(cacheKey, body);
+  return body;
 }
 
 async function copyMarkdown() {
@@ -697,15 +1181,24 @@ async function downloadSubtitle() {
   setMessage(`已下载：${filename}`);
 }
 
-async function sendToObsidian() {
+async function sendToObsidian({ noteFolderId = "" } = {}) {
   state.settings = await getSettings();
   if (!state.markdown) {
     setMessage("没有可发送内容，请先刷新抓取。");
     return;
   }
 
-  const filename = buildNoteFilename(state);
-  const folder = normalizeFolder(state.settings.noteFolder || "");
+  const resolvedNoteFolder = getResolvedNoteFolder(state.settings, noteFolderId);
+  if (!resolvedNoteFolder?.path) {
+    setMessage("请先在设置中配置至少一个保存目录。");
+    requestOpenOptions();
+    return;
+  }
+
+  const filename = buildNoteFilename(state, {
+    collectionContext: null
+  });
+  const folder = normalizeFolder(resolvedNoteFolder.path || state.settings.noteFolder || "");
   const filepath = folder ? `${folder}/${filename}` : filename;
   const baseUrl = String(state.settings.obsidianApiBaseUrl || "").trim();
   const apiKey = String(state.settings.obsidianApiKey || "").trim();
@@ -841,11 +1334,11 @@ async function getSettings() {
   try {
     const response = await sendRuntimeMessage({ type: "get-settings" });
     if (!response?.ok) {
-      return { ...DEFAULT_SETTINGS };
+      return normalizeSettings({ ...DEFAULT_SETTINGS });
     }
-    return { ...DEFAULT_SETTINGS, ...(response.settings || {}) };
+    return normalizeSettings({ ...DEFAULT_SETTINGS, ...(response.settings || {}) });
   } catch (error) {
-    return { ...DEFAULT_SETTINGS };
+    return normalizeSettings({ ...DEFAULT_SETTINGS });
   }
 }
 
@@ -950,7 +1443,7 @@ async function fetchVideoMeta(bvid) {
 
   const data = payload.data || {};
   const pubdate = Number(data.pubdate || 0);
-  const uploadDate = pubdate > 0 ? new Date(pubdate * 1000).toISOString().slice(0, 10) : "";
+  const uploadDate = pubdate > 0 ? formatLocalDate(pubdate * 1000) : "";
   const pages = Array.isArray(data.pages) ? data.pages : [];
 
   return {
@@ -961,12 +1454,86 @@ async function fetchVideoMeta(bvid) {
     uploadDate,
     defaultCid: data.cid ? String(data.cid) : "",
     defaultDuration: Number(data.duration || 0) || 0,
+    collection: normalizeCollection(data.ugc_season, bvid),
     pages: pages.map((item) => ({
       cid: String(item.cid || ""),
       page: Number(item.page || 0) || 0,
       duration: Number(item.duration || 0) || 0
     }))
   };
+}
+
+function normalizeCollection(ugcSeason, currentBvid = "") {
+  if (!ugcSeason || typeof ugcSeason !== "object") {
+    return null;
+  }
+
+  const sections = Array.isArray(ugcSeason.sections) ? ugcSeason.sections : [];
+  let index = 0;
+  const items = [];
+
+  sections.forEach((section) => {
+    const episodes = Array.isArray(section?.episodes) ? section.episodes : [];
+    const sectionTitle = String(section?.title || "").trim() || "正片";
+    episodes.forEach((episode) => {
+      const bvid = String(episode?.bvid || "").trim();
+      if (!bvid) {
+        return;
+      }
+
+      index += 1;
+      const arc = episode?.arc || {};
+      const page = normalizeEpisodePage(episode?.page);
+      const pubdate = Number(arc?.pubdate || episode?.pubdate || 0);
+      items.push({
+        episodeId: String(episode?.id ?? bvid),
+        sectionTitle,
+        index,
+        bvid,
+        aid: arc?.aid ? String(arc.aid) : episode?.aid ? String(episode.aid) : "",
+        cid: page?.cid ? String(page.cid) : episode?.cid ? String(episode.cid) : "",
+        title: pickCollectionEpisodeTitle(episode),
+        uploadDate: pubdate > 0 ? formatLocalDate(pubdate * 1000) : "",
+        duration: Number(page?.duration || arc?.duration || episode?.duration || 0) || 0,
+        page: Number(page?.page || 1) || 1,
+        isCurrent: bvid === String(currentBvid || "")
+      });
+    });
+  });
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return {
+    id: String(ugcSeason.id || ""),
+    title: String(ugcSeason.title || "").trim() || "未命名合集",
+    sourceType: "ugc-season",
+    items
+  };
+}
+
+function normalizeEpisodePage(page) {
+  if (!page || typeof page !== "object") {
+    return null;
+  }
+
+  return {
+    cid: String(page.cid || ""),
+    page: Number(page.page || 1) || 1,
+    duration: Number(page.duration || 0) || 0
+  };
+}
+
+function pickCollectionEpisodeTitle(episode) {
+  const longTitle = String(episode?.long_title || "").trim();
+  const title = String(episode?.title || "").trim();
+  const arcTitle = String(episode?.arc?.title || "").trim();
+
+  if (title && longTitle && longTitle !== title) {
+    return `${title}｜${longTitle}`;
+  }
+  return title || arcTitle || longTitle || "未命名视频";
 }
 
 function pickCidFromPages(pages, pageIndex, fallbackCid = "") {
@@ -1048,7 +1615,7 @@ function readUploadDate() {
     return dateText;
   }
 
-  return new Date().toISOString().slice(0, 10);
+  return formatLocalDate();
 }
 
 async function fetchSubtitleBundle(bvid, cid, aid = "") {
@@ -1524,8 +2091,8 @@ function buildSubtitlePreview(body, settings) {
     .join("\n");
 }
 
-function buildMarkdown(meta, body, settings) {
-  const created = new Date().toISOString().slice(0, 10);
+function buildMarkdown(meta, body, settings, options = {}) {
+  const created = formatLocalDate();
   const tags = (settings.tags || "")
     .split(",")
     .map((item) => item.trim())
@@ -1541,9 +2108,10 @@ function buildMarkdown(meta, body, settings) {
     settings,
     compactWithHours
   );
-  const frontMatter = buildFrontMatter(meta, settings, created, tagsYaml);
+  const sourceUrl = String(options.sourceUrl || meta?.sourceUrl || "").trim();
+  const page = Number(options.page || meta?.page || 1) || 1;
+  const frontMatter = buildFrontMatter(meta, settings, created, tagsYaml, sourceUrl);
 
-  const page = extractPageIndex(location.href);
   const embedIframe = buildBilibiliEmbedIframe(meta, page);
   const intro = String(meta.description || "").trim();
 
@@ -1566,7 +2134,7 @@ function buildMarkdown(meta, body, settings) {
   return lines.join("\n");
 }
 
-function buildFrontMatter(meta, settings, created, tagsYaml) {
+function buildFrontMatter(meta, settings, created, tagsYaml, sourceUrl = "") {
   const enabled = getEnabledFrontmatterFields(settings);
   if (enabled.length === 0) {
     return "";
@@ -1574,7 +2142,7 @@ function buildFrontMatter(meta, settings, created, tagsYaml) {
 
   const fieldLines = {
     title: `title: "${escapeYaml(meta.title)}"`,
-    url: `url: "${escapeYaml(location.href)}"`,
+    url: `url: "${escapeYaml(sourceUrl || meta?.sourceUrl || "")}"`,
     bvid: `bvid: "${escapeYaml(meta.bvid)}"`,
     cid: `cid: "${escapeYaml(meta.cid)}"`,
     author: `author: "${escapeYaml(meta.author || "unknown")}"`,
@@ -1805,14 +2373,45 @@ function normalizeDownloadFormat(value) {
   return value === "txt" ? "txt" : "srt";
 }
 
-function buildNoteFilename(meta) {
-  const date = new Date().toISOString().slice(0, 10);
-  const baseName = sanitizeFileName(`${date}-${meta.title || meta.bvid || "bilibili-subtitle"}`);
+function buildNoteFilename(meta, options = {}) {
+  const date = formatLocalDate();
+  const collectionContext = options.collectionContext;
+  let baseName = `${date}-${meta.title || meta.bvid || "bilibili-subtitle"}`;
+
+  if (collectionContext?.title && Number(collectionContext.index) > 0) {
+    const width = String(
+      Math.max(Number(collectionContext.total || 0) || 0, Number(collectionContext.index) || 0)
+    ).length;
+    const sequence = String(Number(collectionContext.index) || 0).padStart(Math.max(width, 2), "0");
+    baseName = `${date}-${collectionContext.title}-${sequence}-${meta.title || meta.bvid || "bilibili-subtitle"}`;
+  }
+
+  baseName = sanitizeFileName(baseName);
   return `${baseName}.md`;
+}
+
+function normalizeVideoUrl({ bvid, page = 1 }) {
+  const safeBvid = String(bvid || "").trim();
+  const safePage = Number(page) > 0 ? Number(page) : 1;
+  if (!safeBvid) {
+    return "";
+  }
+  if (safePage <= 1) {
+    return `https://www.bilibili.com/video/${safeBvid}`;
+  }
+  return `https://www.bilibili.com/video/${safeBvid}?p=${safePage}`;
 }
 
 function normalizeFolder(input) {
   return String(input || "").trim().replace(/^\/+|\/+$/g, "");
+}
+
+function formatLocalDate(input = Date.now()) {
+  const date = input instanceof Date ? input : new Date(input);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function escapeHtml(value) {

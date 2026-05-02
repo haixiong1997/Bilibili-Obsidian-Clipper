@@ -4,6 +4,7 @@ const DEFAULT_SETTINGS = {
   obsidianApiKey: "",
   tags: "clippings,bilibili",
   downloadFormat: "srt",
+  includeDateInFilename: true,
   includeTimestampInBody: true,
   enableDebugLogs: false,
   frontmatterFields: [
@@ -25,6 +26,7 @@ const elements = {
   obsidianApiKey: document.getElementById("obsidianApiKey"),
   tags: document.getElementById("tags"),
   downloadFormat: document.getElementById("downloadFormat"),
+  includeDateInFilename: document.getElementById("includeDateInFilename"),
   includeTimestampInBody: document.getElementById("includeTimestampInBody"),
   enableDebugLogs: document.getElementById("enableDebugLogs"),
   frontmatterFields: document.querySelectorAll('input[name="frontmatterField"]'),
@@ -51,6 +53,7 @@ async function loadSettings() {
   elements.obsidianApiKey.value = settings.obsidianApiKey || "";
   elements.tags.value = settings.tags || "";
   elements.downloadFormat.value = normalizeDownloadFormat(settings.downloadFormat);
+  elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
   const selectedFields = new Set(settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields);
@@ -118,6 +121,7 @@ function collectFormPayload() {
     obsidianApiKey: elements.obsidianApiKey.value.trim(),
     tags: elements.tags.value.trim(),
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
+    includeDateInFilename: elements.includeDateInFilename.checked,
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     enableDebugLogs: elements.enableDebugLogs.checked,
     frontmatterFields: selectedFields

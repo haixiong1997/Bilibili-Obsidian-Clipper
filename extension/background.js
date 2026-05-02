@@ -3,6 +3,7 @@ const DEFAULT_SYNC_SETTINGS = {
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   tags: "clippings,bilibili",
   downloadFormat: "srt",
+  includeDateInFilename: true,
   includeTimestampInBody: true,
   enableDebugLogs: false,
   frontmatterFields: [

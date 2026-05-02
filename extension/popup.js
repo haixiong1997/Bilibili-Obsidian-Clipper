@@ -215,10 +215,19 @@ async function sendToContent(message) {
       resolve(resp);
     });
   }).catch((error) => {
+    const normalizedError = normalizeContentErrorMessage(error);
     setStatus("请在 B 站视频页使用插件。");
-    setMessage(error.message);
-    return { ok: false, error: error.message, payload: latestPayload };
+    setMessage(normalizedError);
+    return { ok: false, error: normalizedError, payload: latestPayload };
   });
+}
+
+function normalizeContentErrorMessage(error) {
+  const message = String(error?.message || "").trim();
+  if (message.includes("Could not establish connection. Receiving end does not exist.")) {
+    return "请刷新浏览器网页重试，或当前网页不支持";
+  }
+  return message || "未知错误";
 }
 
 async function sendToRuntime(message) {

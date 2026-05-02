@@ -45,6 +45,8 @@
 
 - `README.md` / `LICENSE`：项目说明与许可证
 - `extension/`：插件源码（manifest、js、css、icons）
+- `scripts/build_release.py`：Chrome / Firefox 打包脚本
+- `docs/build-and-release.md`：发布流程说明
 
 ## Obsidian 配置
 
@@ -62,3 +64,13 @@
 ## 视频教程
 
 - [B 站教程](https://www.bilibili.com/video/BV15qQwB4EZ9/?spm_id_from=333.1387.homepage.video_card.click&vd_source=040bc5ea7866b419558ec2682a2ccb59)
+
+## 打包发布
+
+在仓库根目录执行：
+
+```bash
+python3 scripts/build_release.py
+```
+
+详细流程见 `docs/build-and-release.md`。

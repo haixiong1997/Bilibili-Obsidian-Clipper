@@ -38,13 +38,19 @@ def build_variant(manifest: dict, browser: str, version: str):
 
     variant_manifest = json.loads(json.dumps(manifest))
     if browser == "chrome":
-      variant_manifest.pop("browser_specific_settings", None)
+        variant_manifest.pop("browser_specific_settings", None)
+        background = variant_manifest.setdefault("background", {})
+        background.pop("scripts", None)
+        background["service_worker"] = "background.js"
     elif browser == "firefox":
-      gecko = variant_manifest.setdefault("browser_specific_settings", {}).setdefault("gecko", {})
-      gecko.setdefault("id", "bilibili-obsidian-clipper@github.com")
-      gecko.setdefault("strict_min_version", "109.0")
+        gecko = variant_manifest.setdefault("browser_specific_settings", {}).setdefault("gecko", {})
+        gecko.setdefault("id", "bilibili-obsidian-clipper@github.com")
+        gecko.setdefault("strict_min_version", "109.0")
+        background = variant_manifest.setdefault("background", {})
+        background.pop("service_worker", None)
+        background["scripts"] = ["background.js"]
     else:
-      raise ValueError(f"Unsupported browser: {browser}")
+        raise ValueError(f"Unsupported browser: {browser}")
 
     dump_manifest(release_folder / "manifest.json", variant_manifest)
 

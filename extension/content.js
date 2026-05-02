@@ -20,7 +20,7 @@ const DEFAULT_SETTINGS = {
   ]
 };
 
-const BOC_VERSION = "1.0.10";
+const BOC_VERSION = "1.0.14";
 const CACHE_KEY_PREFIX = "boc_subtitle_cache_";
 
 const state = {

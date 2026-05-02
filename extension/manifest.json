@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bilibili Obsidian Clipper｜一键保存B站字幕",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "在 B 站视频页抓取字幕，预览后一键保存到 Obsidian。",
   
   "browser_specific_settings": {
@@ -11,7 +11,7 @@
     }
   },
   
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting"],
   "host_permissions": [
     "https://www.bilibili.com/*",
     "https://api.bilibili.com/*",
@@ -35,6 +35,7 @@
     {
       "matches": [
         "https://www.bilibili.com/video/*",
+        "https://www.bilibili.com/list/watchlater",
         "https://www.bilibili.com/list/watchlater/*"
       ],
       "js": ["content.js"],

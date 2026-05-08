@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS = {
   obsidianApiKey: "",
   tags: "clippings,bilibili",
   downloadFormat: "srt",
+  includeDateInFilename: true,
   includeTimestampInBody: true,
   enableDebugLogs: false,
   frontmatterFields: [
@@ -27,7 +28,7 @@ const DEFAULT_SETTINGS = {
   ]
 };
 
-const BOC_VERSION = "1.0.10";
+const BOC_VERSION = "1.0.14";
 const CACHE_KEY_PREFIX = "boc_subtitle_cache_";
 
 const state = {
@@ -37,6 +38,9 @@ const state = {
   aid: "",
   cid: "",
   cidSource: "",
+  pageIndex: 1,
+  pageCount: 0,
+  pageTitle: "",
   videoDuration: 0,
   description: "",
   title: "",
@@ -354,6 +358,9 @@ function resetClipState() {
   state.aid = "";
   state.cid = "";
   state.cidSource = "";
+  state.pageIndex = 1;
+  state.pageCount = 0;
+  state.pageTitle = "";
   state.videoDuration = 0;
   state.description = "";
   state.title = "";
@@ -395,6 +402,7 @@ async function refreshClip() {
     }
 
     const pageIndex = extractPageIndex(location.href);
+    const oid = extractOid(location.href);
     const hasPageParam = hasExplicitPageParam(location.href);
     const meta = await retryAsync(() => fetchVideoMeta(state.bvid), 2, 250);
     ensureRunActive(runId);
@@ -415,9 +423,20 @@ async function refreshClip() {
     state.collection = meta.collection || null;
     let resolvedPageIndex = pageIndex;
     if ((meta.pages || []).length > 1 && !hasPageParam) {
-      // B 站多分P中，P1 常见为无 ?p= 参数，此时默认按 P1 解析。
-      resolvedPageIndex = 1;
-      logInfo("[BOC] multi-page video without p param, fallback to P1");
+      const pageIndexFromOid = pickPageIndexFromOid(meta.pages, oid);
+      if (pageIndexFromOid > 0) {
+        resolvedPageIndex = pageIndexFromOid;
+        logInfo("[BOC] resolved page index from oid", {
+          oid,
+          resolvedPageIndex
+        });
+      } else {
+        // B 站多分P中，P1 常见为无 ?p= 参数；watchlater 等页面可能改用 oid 标识当前分P。
+        resolvedPageIndex = 1;
+        logInfo("[BOC] multi-page video without p param or valid oid, fallback to P1", {
+          oid
+        });
+      }
     }
 
     state.page = resolvedPageIndex;
@@ -1352,19 +1371,49 @@ function byId(id) {
 
 function extractBvid(url) {
   const match = url.match(/\/video\/(BV[0-9A-Za-z]+)/);
-  return match?.[1] || "";
+  if (match?.[1]) {
+    return match[1];
+  }
+
+  try {
+    const parsed = new URL(url);
+    const fromQuery = String(parsed.searchParams.get("bvid") || "").trim();
+    if (/^BV[0-9A-Za-z]+$/.test(fromQuery)) {
+      return fromQuery;
+    }
+  } catch {
+    // ignore invalid URL
+  }
+
+  return "";
 }
 
 function extractPageIndex(url) {
-  const page = Number(new URL(url).searchParams.get("p") || "1");
-  if (!Number.isFinite(page) || page <= 0) {
+  try {
+    const page = Number(new URL(url).searchParams.get("p") || "1");
+    if (!Number.isFinite(page) || page <= 0) {
+      return 1;
+    }
+    return page;
+  } catch {
     return 1;
   }
-  return page;
 }
 
 function hasExplicitPageParam(url) {
-  return new URL(url).searchParams.has("p");
+  try {
+    return new URL(url).searchParams.has("p");
+  } catch {
+    return false;
+  }
+}
+
+function extractOid(url) {
+  try {
+    return String(new URL(url).searchParams.get("oid") || "").trim();
+  } catch {
+    return "";
+  }
 }
 
 function ensureRunActive(runId) {
@@ -1458,6 +1507,7 @@ async function fetchVideoMeta(bvid) {
     pages: pages.map((item) => ({
       cid: String(item.cid || ""),
       page: Number(item.page || 0) || 0,
+      part: String(item.part || "").trim(),
       duration: Number(item.duration || 0) || 0
     }))
   };
@@ -1541,14 +1591,24 @@ function pickCidFromPages(pages, pageIndex, fallbackCid = "") {
   const safePages = Array.isArray(pages) ? pages : [];
   const pageByIndex = safePages[safePageIndex - 1];
   if (pageByIndex?.cid) {
-    return String(pageByIndex.cid);
+    return pageByIndex;
   }
 
   const pageByNo = safePages.find((item) => Number(item.page) === safePageIndex);
   if (pageByNo?.cid) {
-    return String(pageByNo.cid);
+    return pageByNo;
   }
 
+  return null;
+}
+
+function pickCidFromPages(pages, pageIndex, fallbackCid = "") {
+  const matchedPage = pickPageFromPages(pages, pageIndex);
+  if (matchedPage?.cid) {
+    return String(matchedPage.cid);
+  }
+
+  const safePages = Array.isArray(pages) ? pages : [];
   if (safePages[0]?.cid) {
     return String(safePages[0].cid);
   }
@@ -1560,19 +1620,28 @@ function pickCidFromPages(pages, pageIndex, fallbackCid = "") {
   throw new Error("没有找到当前分P的 CID。");
 }
 
-function pickDurationFromPages(pages, pageIndex, fallbackDuration = 0) {
-  const safePageIndex = Number(pageIndex) > 0 ? Number(pageIndex) : 1;
+function pickPageIndexFromOid(pages, oid) {
+  const safeOid = String(oid || "").trim();
+  if (!safeOid) {
+    return 0;
+  }
+
   const safePages = Array.isArray(pages) ? pages : [];
-  const pageByIndex = safePages[safePageIndex - 1];
-  if (Number(pageByIndex?.duration) > 0) {
-    return Number(pageByIndex.duration);
+  const pageByCid = safePages.find((item) => String(item?.cid || "") === safeOid);
+  if (pageByCid?.page) {
+    return Number(pageByCid.page) || 0;
   }
 
-  const pageByNo = safePages.find((item) => Number(item.page) === safePageIndex);
-  if (Number(pageByNo?.duration) > 0) {
-    return Number(pageByNo.duration);
+  return 0;
+}
+
+function pickDurationFromPages(pages, pageIndex, fallbackDuration = 0) {
+  const matchedPage = pickPageFromPages(pages, pageIndex);
+  if (Number(matchedPage?.duration) > 0) {
+    return Number(matchedPage.duration);
   }
 
+  const safePages = Array.isArray(pages) ? pages : [];
   if (Number(safePages[0]?.duration) > 0) {
     return Number(safePages[0].duration);
   }

@@ -599,17 +599,87 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-async function getActiveTabId() {
+async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tabs?.[0]?.id || null;
+  return tabs?.[0] || null;
+}
+
+async function getActiveTabId() {
+  const tab = await getActiveTab();
+  return tab?.id || null;
 }
 
 async function sendToContent(message) {
-  const tabId = await getActiveTabId();
+  const tab = await getActiveTab();
+  const tabId = tab?.id || null;
   if (!tabId) {
     throw new Error("找不到当前标签页");
   }
 
+  try {
+    return await sendMessageToTab(tabId, message);
+  } catch (error) {
+    if (shouldRetryAfterInjection(error) && isSupportedSubtitlePage(tab?.url || "")) {
+      try {
+        await ensureContentScriptReady(tabId);
+        await sleep(80);
+        return await sendMessageToTab(tabId, message);
+      } catch (retryError) {
+        error = retryError;
+      }
+    }
+
+    const normalizedError = normalizeContentErrorMessage(error);
+    setStatus("请在 B 站视频页使用插件。");
+    setMessage(normalizedError);
+    return { ok: false, error: normalizedError, payload: latestPayload };
+  }
+}
+
+function normalizeContentErrorMessage(error) {
+  const message = String(error?.message || "").trim();
+  if (message.includes("Could not establish connection. Receiving end does not exist.")) {
+    return "请刷新浏览器网页重试，或当前网页不支持";
+  }
+  return message || "未知错误";
+}
+
+function shouldRetryAfterInjection(error) {
+  const message = String(error?.message || "");
+  return message.includes("Could not establish connection. Receiving end does not exist.");
+}
+
+function isSupportedSubtitlePage(url) {
+  try {
+    const parsed = new URL(String(url || ""));
+    if (parsed.hostname !== "www.bilibili.com") {
+      return false;
+    }
+    return parsed.pathname === "/list/watchlater" ||
+      parsed.pathname === "/list/watchlater/" ||
+      parsed.pathname.startsWith("/video/");
+  } catch {
+    return false;
+  }
+}
+
+async function ensureContentScriptReady(tabId) {
+  if (!chrome.scripting) {
+    throw new Error("请刷新浏览器网页重试，或当前网页不支持");
+  }
+
+  await chrome.scripting.insertCSS({
+    target: { tabId },
+    files: ["content.css"]
+  });
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content.js"]
+  });
+}
+
+async function sendMessageToTab(tabId, message) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, message, (resp) => {
       if (chrome.runtime.lastError) {
@@ -624,6 +694,10 @@ async function sendToContent(message) {
     setMessage(error.message);
     return { ok: false, error: error.message, payload: latestPayload };
   });
+}
+
+async function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 async function sendToRuntime(message) {

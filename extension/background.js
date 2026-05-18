@@ -201,11 +201,11 @@ async function initializeSettingsStorage() {
 
   await chrome.storage.sync.set({ ...DEFAULT_SYNC_SETTINGS, ...syncCurrent });
   await chrome.storage.local.set({
-    obsidianApiKey: toString(localCurrent.obsidianApiKey)
+    obsidianApiKey: normalizeApiKey(localCurrent.obsidianApiKey)
   });
 
-  const legacySyncApiKey = toString(syncCurrent.obsidianApiKey).trim();
-  const localApiKey = toString(localCurrent.obsidianApiKey).trim();
+  const legacySyncApiKey = normalizeApiKey(syncCurrent.obsidianApiKey);
+  const localApiKey = normalizeApiKey(localCurrent.obsidianApiKey);
   if (!localApiKey && legacySyncApiKey) {
     await chrome.storage.local.set({ obsidianApiKey: legacySyncApiKey });
   }
@@ -223,8 +223,8 @@ async function getMergedSettings() {
 
   const merged = { ...DEFAULT_SYNC_SETTINGS, ...syncSettings };
   merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
-  let apiKey = toString(localSettings.obsidianApiKey).trim();
-  const legacySyncApiKey = toString(syncSettings.obsidianApiKey).trim();
+  let apiKey = normalizeApiKey(localSettings.obsidianApiKey);
+  const legacySyncApiKey = normalizeApiKey(syncSettings.obsidianApiKey);
 
   if (!apiKey && legacySyncApiKey) {
     apiKey = legacySyncApiKey;
@@ -247,13 +247,17 @@ async function saveSettings(settings) {
   await Promise.all([
     chrome.storage.sync.set(syncPayload),
     chrome.storage.local.set({
-      obsidianApiKey: toString(payload.obsidianApiKey).trim()
+      obsidianApiKey: normalizeApiKey(payload.obsidianApiKey)
     })
   ]);
 }
 
 function toString(value) {
   return typeof value === "string" ? value : "";
+}
+
+function normalizeApiKey(value) {
+  return toString(value).trim().replace(/^Bearer\s+/i, "").trim();
 }
 
 function normalizeDownloadFormat(value) {

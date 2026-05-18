@@ -113,12 +113,14 @@ function collectFormPayload() {
     .map((checkbox) => checkbox.value);
 
   const normalizedBaseUrl = normalizeBaseUrl(elements.obsidianApiBaseUrl.value);
+  const normalizedApiKey = normalizeApiKey(elements.obsidianApiKey.value);
   elements.obsidianApiBaseUrl.value = normalizedBaseUrl;
+  elements.obsidianApiKey.value = normalizedApiKey;
 
   return {
     noteFolder: elements.noteFolder.value.trim(),
     obsidianApiBaseUrl: normalizedBaseUrl,
-    obsidianApiKey: elements.obsidianApiKey.value.trim(),
+    obsidianApiKey: normalizedApiKey,
     tags: elements.tags.value.trim(),
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
     includeDateInFilename: elements.includeDateInFilename.checked,
@@ -197,6 +199,10 @@ function clearInputErrors() {
 
 function normalizeBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/g, "");
+}
+
+function normalizeApiKey(value) {
+  return String(value || "").trim().replace(/^Bearer\s+/i, "").trim();
 }
 
 async function testConnection() {

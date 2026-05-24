@@ -113,6 +113,61 @@ select.input-error {
   padding: 12px;
 }
 
+.folder-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.folder-head .hint {
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+.folder-list {
+  display: grid;
+  gap: 10px;
+}
+
+.folder-item {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 72px;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f9fafb;
+}
+
+.folder-default {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.folder-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.folder-fields input {
+  margin-bottom: 0;
+}
+
+.folder-remove {
+  background: #fff1f2;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+  font-weight: 600;
+  padding: 9px 10px;
+ }
+
 .hint {
   margin: 0 0 10px;
   color: #6b7280;

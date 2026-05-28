@@ -48,7 +48,7 @@
 
 ## Obsidian 配置
 
-1. 在 Obsidian 社区插件市场安装并启用 `Local REST API & MCP Server`
+1. 在 Obsidian 社区插件市场安装并启用 `Local REST API with MCP`
 2. 在插件设置中勾选 `Enable Non-encrypted (HTTP) Server`
 3. 复制插件页面里的 API Key
 4. 在扩展设置页填写 `Local REST API 地址`、`API Key`、`笔记目录`

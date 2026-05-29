@@ -21,7 +21,7 @@ const DEFAULT_SETTINGS = {
   fixedFrontmatterProperties: []
 };
 
-const BOC_VERSION = "1.0.16";
+const BOC_VERSION = "1.0.17";
 const CACHE_KEY_PREFIX = "boc_subtitle_cache_";
 
 const state = {

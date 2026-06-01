@@ -26,6 +26,23 @@
       <label class="label" for="subtitleSelect">字幕语言</label>
       <select id="subtitleSelect"></select>
 
+      <label class="label" for="noteFolderSelect">保存目录</label>
+      <select id="noteFolderSelect"></select>
+
+      <section id="collectionSection" class="collection hidden">
+        <div class="section-title">合集导入</div>
+        <div class="collection-head">
+          <div id="collectionTitle" class="collection-title"></div>
+          <div class="collection-shortcuts">
+            <button id="selectAllBtn" type="button" class="ghost small">全选</button>
+            <button id="selectCurrentBtn" type="button" class="ghost small">仅当前</button>
+            <button id="clearSelectionBtn" type="button" class="ghost small">清空</button>
+          </div>
+        </div>
+        <div id="collectionList" class="collection-list"></div>
+        <button id="batchImportBtn" type="button" class="batch">批量导入到 Obsidian</button>
+      </section>
+
       <label class="label" for="preview">字幕预览</label>
       <textarea id="preview" readonly wrap="off"></textarea>
 
@@ -36,6 +53,10 @@
       </div>
       <button id="sendBtn" type="button" class="send">保存到 Obsidian</button>
       <p id="message" class="message"></p>
+      <div id="batchResultWrap" class="batch-result-wrap hidden">
+        <div id="batchResult" class="batch-result"></div>
+        <button id="batchRetryBtn" type="button" class="ghost hidden">仅重试失败项</button>
+      </div>
     </main>
 
     <script src="./popup.js"></script>

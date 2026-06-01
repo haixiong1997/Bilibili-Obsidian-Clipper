@@ -24,7 +24,8 @@ const DEFAULT_SYNC_SETTINGS = {
     "subtitle_lang",
     "created",
     "tags"
-  ]
+  ],
+  fixedFrontmatterProperties: []
 };
 
 const DEFAULT_LOCAL_SETTINGS = {
@@ -210,11 +211,11 @@ async function initializeSettingsStorage() {
 
   await chrome.storage.sync.set(normalizedSync);
   await chrome.storage.local.set({
-    obsidianApiKey: toString(localCurrent.obsidianApiKey)
+    obsidianApiKey: normalizeApiKey(localCurrent.obsidianApiKey)
   });
 
-  const legacySyncApiKey = toString(syncCurrent.obsidianApiKey).trim();
-  const localApiKey = toString(localCurrent.obsidianApiKey).trim();
+  const legacySyncApiKey = normalizeApiKey(syncCurrent.obsidianApiKey);
+  const localApiKey = normalizeApiKey(localCurrent.obsidianApiKey);
   if (!localApiKey && legacySyncApiKey) {
     await chrome.storage.local.set({ obsidianApiKey: legacySyncApiKey });
   }
@@ -232,8 +233,9 @@ async function getMergedSettings() {
 
   const merged = normalizeSettingsPayload({ ...DEFAULT_SYNC_SETTINGS, ...syncSettings });
   merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
-  let apiKey = toString(localSettings.obsidianApiKey).trim();
-  const legacySyncApiKey = toString(syncSettings.obsidianApiKey).trim();
+  merged.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
+  let apiKey = normalizeApiKey(localSettings.obsidianApiKey);
+  const legacySyncApiKey = normalizeApiKey(syncSettings.obsidianApiKey);
 
   if (!apiKey && legacySyncApiKey) {
     apiKey = legacySyncApiKey;
@@ -252,17 +254,22 @@ async function saveSettings(settings) {
   const syncPayload = { ...payload };
   delete syncPayload.obsidianApiKey;
   syncPayload.downloadFormat = normalizeDownloadFormat(syncPayload.downloadFormat);
+  syncPayload.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(syncPayload.fixedFrontmatterProperties);
 
   await Promise.all([
     chrome.storage.sync.set(syncPayload),
     chrome.storage.local.set({
-      obsidianApiKey: toString(payload.obsidianApiKey).trim()
+      obsidianApiKey: normalizeApiKey(payload.obsidianApiKey)
     })
   ]);
 }
 
 function toString(value) {
   return typeof value === "string" ? value : "";
+}
+
+function normalizeApiKey(value) {
+  return toString(value).trim().replace(/^Bearer\s+/i, "").trim();
 }
 
 function normalizeDownloadFormat(value) {
@@ -346,6 +353,35 @@ function resolveDefaultNoteFolderId(defaultNoteFolderId, noteFolders) {
     return preferredId;
   }
   return noteFolders[0]?.id || DEFAULT_SYNC_SETTINGS.defaultNoteFolderId;
+function normalizeFixedFrontmatterProperties(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => ({
+      key: toString(item?.key).trim(),
+      type: normalizeFixedPropertyType(item?.type),
+      value: normalizeFixedPropertyValue(item?.type, item?.value)
+    }))
+    .filter((item) => item.key && !isFixedPropertyRowEffectivelyEmpty(item.type, item.value));
+}
+
+function normalizeFixedPropertyType(value) {
+  const type = toString(value).trim().toLowerCase();
+  return type === "number" || type === "checkbox" || type === "list" ? type : "text";
+}
+
+function normalizeFixedPropertyValue(type, value) {
+  const normalizedType = normalizeFixedPropertyType(type);
+  if (normalizedType === "checkbox") {
+    return toString(value).trim().toLowerCase();
+  }
+  return toString(value).trim();
+}
+
+function isFixedPropertyRowEffectivelyEmpty(type, value) {
+  return !toString(value).trim();
 }
 
 function formatConnectionError(error) {

@@ -32,7 +32,7 @@
           </p>
         </div>
         <ol>
-          <li>在 Obsidian 社区插件市场安装并启用 <strong>Local REST API</strong>。</li>
+          <li>在 Obsidian 社区插件市场安装并启用 <strong>Local REST API with MCP</strong>。</li>
           <li>
             在插件设置中勾选 <strong>Enable Non-encrypted (HTTP) Server</strong>，地址通常为
             <code>http://127.0.0.1:27123</code>。
@@ -57,7 +57,7 @@
 
       <label for="obsidianApiKey">Local REST API Key</label>
       <input id="obsidianApiKey" type="password" placeholder="填入 Obsidian Local REST API 的 Key" />
-      <p class="hint inline-hint">填写完成后，建议先点击下方“测试连接”，确认显示“连接成功”再保存设置。</p>
+      <p class="hint inline-hint">填写完成后建议先点击下方“测试连接”。</p>
 
       <label for="tags">默认标签（逗号分隔）</label>
       <input id="tags" type="text" placeholder="例如：clippings,bilibili,subtitle" />
@@ -103,6 +103,13 @@
           </label>
           <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="tags" /> tags</label>
         </div>
+      </section>
+
+      <section class="field-group property-editor">
+        <h2>自定义属性</h2>
+        <div id="fixedPropertiesList" class="fixed-properties-list"></div>
+        <p id="fixedPropertiesEmpty" class="fixed-properties-empty">还没有自定义属性</p>
+        <button id="addFixedPropertyBtn" class="add-property-btn" type="button">+ 添加属性</button>
       </section>
 
       <div class="action-row">

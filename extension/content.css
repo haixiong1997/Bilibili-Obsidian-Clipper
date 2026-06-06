@@ -1280,6 +1280,20 @@ body[data-boc-reader-mode="1"] #boc-reading-inline-host {
   height: 100vh;
   scrollbar-width: thin;
   scrollbar-color: rgba(100, 116, 139, 0.1) transparent;
+  position: relative;
+  isolation: isolate;
+}
+
+body[data-boc-reader-mode="1"] #boc-reading-inline-host::before {
+  content: "";
+  position: sticky;
+  top: 0;
+  display: block;
+  height: 5px;
+  margin-bottom: -5px;
+  z-index: 3;
+  pointer-events: none;
+  background: var(--boc-reader-surface-2);
 }
 
 body[data-boc-reader-mode="1"] #playerWrap,

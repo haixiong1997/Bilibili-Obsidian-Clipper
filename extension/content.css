@@ -984,6 +984,12 @@ body[data-boc-reader-mode="1"][data-boc-reader-transcript-visible="0"] #boc-read
   background: var(--boc-reader-surface-2);
 }
 
+html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-item:hover,
+body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-item:hover,
+#boc-reading-view[data-theme="dark"] .boc-reading-item:hover {
+  background: var(--boc-reader-page-bg);
+}
+
 #boc-reading-view .boc-reading-item.is-active,
 #boc-reading-view .boc-reading-chapter.is-active {
   background: var(--boc-reader-accent-soft);

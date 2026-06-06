@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS = {
   readerLineHeight: "tight",
   readerContentWidth: "medium",
   readerChapterVisibility: "show",
+  readerTranscriptVisible: true,
   frontmatterFields: [
     "title",
     "url",
@@ -65,6 +66,7 @@ const state = {
   readingLineHeight: "tight",
   readingContentWidth: "medium",
   readingChapterVisibility: "show",
+  readingTranscriptVisible: true,
   readingSettingsExpanded: false,
   readingDescriptionExpanded: false,
   readingActiveSubtitleIndex: -1,
@@ -263,6 +265,10 @@ function normalizeReaderChapterVisibility(value) {
   return value === "hide" || value === "auto" ? value : "show";
 }
 
+function normalizeReaderTranscriptVisible(value) {
+  return value !== false;
+}
+
 function shouldDebugLog() {
   return Boolean(state.settings?.enableDebugLogs);
 }
@@ -308,6 +314,7 @@ const ids = {
   readingCloseBtn: "boc-reading-close-btn",
   readingRefreshBtn: "boc-reading-refresh-btn",
   readingAutoScroll: "boc-reading-autoscroll",
+  readingTranscriptVisible: "boc-reading-transcript-visible",
   readingThemeSelect: "boc-reading-theme-select",
   readingSettingsBtn: "boc-reading-settings-btn",
   readingSettingsPanel: "boc-reading-settings-panel",
@@ -552,6 +559,10 @@ function buildUiHtml() {
                   <input id="${ids.readingAutoScroll}" type="checkbox" checked />
                   <span>滚动</span>
                 </label>
+                <label class="boc-reading-toggle boc-reading-toggle-inline">
+                  <input id="${ids.readingTranscriptVisible}" type="checkbox" checked />
+                  <span>字幕区域</span>
+                </label>
               </div>
             </section>
 
@@ -601,6 +612,7 @@ function bindUiEvents() {
   const readingView = byId(ids.readingView);
   const readingCloseBtn = byId(ids.readingCloseBtn);
   const readingAutoScroll = byId(ids.readingAutoScroll);
+  const readingTranscriptVisible = byId(ids.readingTranscriptVisible);
   const readingThemeSelect = byId(ids.readingThemeSelect);
   const readingSettingsToggleBtn = byId(ids.readingSettingsBtn);
   const readingFontScaleSelect = byId(ids.readingFontScaleSelect);
@@ -632,6 +644,9 @@ function bindUiEvents() {
       syncReadingViewPlayback(true);
     }
     updateReaderFollowState();
+  });
+  readingTranscriptVisible.addEventListener("change", (event) => {
+    updateReaderPreferences({ readerTranscriptVisible: Boolean(event.target.checked) }, { persist: true });
   });
   readingThemeSelect.addEventListener("click", () => {
     const themes = ["light", "dark", "paper"];
@@ -1780,6 +1795,7 @@ function hydrateReaderStateFromSettings(settings = state.settings) {
   state.readingLineHeight = normalizeReaderLineHeight(settings?.readerLineHeight);
   state.readingContentWidth = normalizeReaderContentWidth(settings?.readerContentWidth);
   state.readingChapterVisibility = normalizeReaderChapterVisibility(settings?.readerChapterVisibility);
+  state.readingTranscriptVisible = normalizeReaderTranscriptVisible(settings?.readerTranscriptVisible);
 }
 
 function applyReadingViewPresentation() {
@@ -1790,18 +1806,21 @@ function applyReadingViewPresentation() {
   readingView.dataset.lineHeight = state.readingLineHeight;
   readingView.dataset.contentWidth = state.readingContentWidth;
   readingView.dataset.chapterVisibility = state.readingChapterVisibility;
+  readingView.dataset.transcriptVisible = state.readingTranscriptVisible ? "1" : "0";
   document.documentElement.dataset.bocReaderTheme = state.readingTheme;
   document.documentElement.dataset.bocReaderFontScale = state.readingFontScale;
   document.documentElement.dataset.bocReaderLetterSpacing = state.readingLetterSpacing;
   document.documentElement.dataset.bocReaderLineHeight = state.readingLineHeight;
   document.documentElement.dataset.bocReaderContentWidth = state.readingContentWidth;
   document.documentElement.dataset.bocReaderChapterVisibility = state.readingChapterVisibility;
+  document.documentElement.dataset.bocReaderTranscriptVisible = state.readingTranscriptVisible ? "1" : "0";
   document.body.dataset.bocReaderTheme = state.readingTheme;
   document.body.dataset.bocReaderFontScale = state.readingFontScale;
   document.body.dataset.bocReaderLetterSpacing = state.readingLetterSpacing;
   document.body.dataset.bocReaderLineHeight = state.readingLineHeight;
   document.body.dataset.bocReaderContentWidth = state.readingContentWidth;
   document.body.dataset.bocReaderChapterVisibility = state.readingChapterVisibility;
+  document.body.dataset.bocReaderTranscriptVisible = state.readingTranscriptVisible ? "1" : "0";
   byId(ids.readingChapterVisibilitySelect).value = state.readingChapterVisibility;
 }
 
@@ -1931,6 +1950,8 @@ function renderReaderPanels() {
   const settingsBtn = byId(ids.readingSettingsBtn);
   settingsPanel.hidden = !state.readingSettingsExpanded;
   settingsBtn.classList.toggle("is-active", state.readingSettingsExpanded);
+  byId(ids.readingAutoScroll).checked = state.readingAutoScroll;
+  byId(ids.readingTranscriptVisible).checked = state.readingTranscriptVisible;
   renderReaderStepperState(byId(ids.readingFontScaleSelect), "readerFontScale");
   renderReaderStepperState(byId(ids.readingLetterSpacingSelect), "readerLetterSpacing");
   renderReaderStepperState(byId(ids.readingLineHeightSelect), "readerLineHeight");
@@ -2011,6 +2032,9 @@ function updateReaderPreferences(next, { persist = true } = {}) {
   state.readingChapterVisibility = normalizeReaderChapterVisibility(
     next.readerChapterVisibility ?? state.readingChapterVisibility
   );
+  state.readingTranscriptVisible = normalizeReaderTranscriptVisible(
+    next.readerTranscriptVisible ?? state.readingTranscriptVisible
+  );
   state.settings = {
     ...state.settings,
     readerTheme: state.readingTheme,
@@ -2018,7 +2042,8 @@ function updateReaderPreferences(next, { persist = true } = {}) {
     readerLetterSpacing: state.readingLetterSpacing,
     readerLineHeight: state.readingLineHeight,
     readerContentWidth: state.readingContentWidth,
-    readerChapterVisibility: state.readingChapterVisibility
+    readerChapterVisibility: state.readingChapterVisibility,
+    readerTranscriptVisible: state.readingTranscriptVisible
   };
   applyReadingViewPresentation();
   renderReaderPanels();

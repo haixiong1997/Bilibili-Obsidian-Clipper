@@ -12,6 +12,7 @@ const DEFAULT_SYNC_SETTINGS = {
   readerLineHeight: "tight",
   readerContentWidth: "medium",
   readerChapterVisibility: "show",
+  readerTranscriptVisible: true,
   frontmatterFields: [
     "title",
     "url",
@@ -395,6 +396,7 @@ async function getMergedSettings() {
   merged.readerLineHeight = normalizeReaderLineHeight(merged.readerLineHeight);
   merged.readerContentWidth = normalizeReaderContentWidth(merged.readerContentWidth);
   merged.readerChapterVisibility = normalizeReaderChapterVisibility(merged.readerChapterVisibility);
+  merged.readerTranscriptVisible = normalizeReaderTranscriptVisible(merged.readerTranscriptVisible);
   merged.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
   let apiKey = normalizeApiKey(localSettings.obsidianApiKey);
   const legacySyncApiKey = normalizeApiKey(syncSettings.obsidianApiKey);
@@ -424,6 +426,7 @@ async function saveSettings(settings) {
   syncPayload.readerLineHeight = normalizeReaderLineHeight(syncPayload.readerLineHeight);
   syncPayload.readerContentWidth = normalizeReaderContentWidth(syncPayload.readerContentWidth);
   syncPayload.readerChapterVisibility = normalizeReaderChapterVisibility(syncPayload.readerChapterVisibility);
+  syncPayload.readerTranscriptVisible = normalizeReaderTranscriptVisible(syncPayload.readerTranscriptVisible);
   syncPayload.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(syncPayload.fixedFrontmatterProperties);
 
   await Promise.all([
@@ -468,6 +471,10 @@ function normalizeReaderContentWidth(value) {
 
 function normalizeReaderChapterVisibility(value) {
   return value === "hide" || value === "auto" ? value : "show";
+}
+
+function normalizeReaderTranscriptVisible(value) {
+  return value !== false;
 }
 
 function normalizeFixedFrontmatterProperties(value) {

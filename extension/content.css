@@ -965,6 +965,12 @@ body[data-boc-reader-mode="1"] #app {
   width: min(100%, var(--boc-reader-content-max));
 }
 
+html[data-boc-reader-mode="1"][data-boc-reader-transcript-visible="0"] #boc-reading-view .boc-reading-main,
+body[data-boc-reader-mode="1"][data-boc-reader-transcript-visible="0"] #boc-reading-view .boc-reading-main,
+#boc-reading-view[data-transcript-visible="0"] .boc-reading-main {
+  display: none;
+}
+
 #boc-reading-view .boc-reading-item {
   grid-template-columns: 70px minmax(0, 1fr);
   gap: 12px;
@@ -976,6 +982,30 @@ body[data-boc-reader-mode="1"] #app {
 #boc-reading-view .boc-reading-chapter:hover,
 #boc-reading-view .boc-reading-item:hover {
   background: var(--boc-reader-surface-2);
+}
+
+html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-chapter:hover,
+html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-item:hover,
+body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-chapter:hover,
+body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-item:hover,
+#boc-reading-view[data-theme="dark"] .boc-reading-chapter:hover,
+#boc-reading-view[data-theme="dark"] .boc-reading-item:hover {
+  background: var(--boc-reader-surface-3);
+}
+
+html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-item:hover .boc-reading-text,
+html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-item:hover .boc-reading-time,
+html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-chapter:hover .boc-reading-chapter-title,
+html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-chapter:hover .boc-reading-chapter-time,
+body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-item:hover .boc-reading-text,
+body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-item:hover .boc-reading-time,
+body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-chapter:hover .boc-reading-chapter-title,
+body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] #boc-reading-view .boc-reading-chapter:hover .boc-reading-chapter-time,
+#boc-reading-view[data-theme="dark"] .boc-reading-item:hover .boc-reading-text,
+#boc-reading-view[data-theme="dark"] .boc-reading-item:hover .boc-reading-time,
+#boc-reading-view[data-theme="dark"] .boc-reading-chapter:hover .boc-reading-chapter-title,
+#boc-reading-view[data-theme="dark"] .boc-reading-chapter:hover .boc-reading-chapter-time {
+  color: var(--boc-reader-text);
 }
 
 #boc-reading-view .boc-reading-item.is-active,

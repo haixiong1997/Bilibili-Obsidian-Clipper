@@ -436,16 +436,6 @@ function bindRuntimeEvents() {
       return true;
     }
 
-    if (message.type === "popup-open-reading-view") {
-      ensureUiReady();
-      openReadingView()
-        .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
-        .catch((error) =>
-          sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
-        );
-      return true;
-    }
-
     return false;
   });
 }
@@ -1583,39 +1573,6 @@ function findReaderPlayerHost(video) {
     video.closest("#bilibili-player") ||
     video.parentElement
   );
-}
-
-async function openReadingView() {
-  if (!extractBvid(location.href)) {
-    throw new Error("当前网页不支持阅读视图。");
-  }
-
-  if (!state.subtitleBody.length) {
-    await refreshClip();
-  }
-
-  const video = bindReadingViewVideo();
-  if (!video) {
-    throw new Error("当前页面没有找到可联动的视频播放器。");
-  }
-
-  state.readingViewOpen = true;
-  state.readingNativePageMode = false;
-  document.body.setAttribute("data-boc-reading-active", "1");
-  hydrateReaderStateFromSettings(state.settings);
-  applyReadingViewPresentation();
-  const readingView = byId(ids.readingView);
-  readingView.classList.add("open");
-  readingView.setAttribute("aria-hidden", "false");
-  setReadingViewReady(false);
-  moveReadingMainInline();
-  renderReadingView();
-  layoutReaderPlayerHost();
-  renderReadingStatus(state.subtitleBody.length ? "已连接页面原生播放器，点击章节或字幕可跳转。" : "当前视频无字幕。");
-  startReadingViewSync();
-  syncReadingViewPlayback(true);
-  updateReaderFollowState();
-  setReadingViewReady(true);
 }
 
 function closeReadingView() {

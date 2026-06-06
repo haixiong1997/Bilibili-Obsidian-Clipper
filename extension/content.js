@@ -649,7 +649,13 @@ function bindUiEvents() {
     updateReaderPreferences({ readerTranscriptVisible: Boolean(event.target.checked) }, { persist: true });
     const host = document.getElementById("boc-reading-inline-host");
     if (host) {
-      host.style.display = event.target.checked ? "" : "none";
+      if (event.target.checked) {
+        host.style.display = "";
+        host.style.backgroundColor = "";
+      } else {
+        host.style.display = "";
+        host.style.backgroundColor = getComputedStyle(document.querySelector(".left-container")).backgroundColor;
+      }
     }
   });
   readingThemeSelect.addEventListener("click", () => {
@@ -1828,7 +1834,8 @@ function applyReadingViewPresentation() {
   byId(ids.readingChapterVisibilitySelect).value = state.readingChapterVisibility;
   const main = document.getElementById("boc-reading-inline-host");
   if (main) {
-    main.style.display = state.readingTranscriptVisible ? "" : "none";
+    main.style.display = "";
+    main.style.backgroundColor = state.readingTranscriptVisible ? "" : getComputedStyle(document.querySelector(".left-container")).backgroundColor;
   }
 }
 

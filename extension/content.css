@@ -444,8 +444,7 @@
   position: relative;
 }
 
-.boc-reading-chapter:hover,
-.boc-reading-item:hover {
+.boc-reading-chapter:hover {
   background: #f9fafb;
 }
 

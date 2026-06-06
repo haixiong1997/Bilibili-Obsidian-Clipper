@@ -967,7 +967,7 @@ body[data-boc-reader-mode="1"] #app {
 html[data-boc-reader-mode="1"][data-boc-reader-transcript-visible="0"] #boc-reading-view .boc-reading-main,
 body[data-boc-reader-mode="1"][data-boc-reader-transcript-visible="0"] #boc-reading-view .boc-reading-main,
 #boc-reading-view[data-transcript-visible="0"] .boc-reading-main {
-  display: none;
+  display: none !important;
 }
 
 #boc-reading-view .boc-reading-item {

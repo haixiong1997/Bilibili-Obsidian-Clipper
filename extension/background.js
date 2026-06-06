@@ -75,17 +75,6 @@ async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForTabUrlReady(tabId, expectedUrl, retries = 40, delayMs = 250) {
-  for (let attempt = 0; attempt < retries; attempt += 1) {
-    const tab = await chrome.tabs.get(tabId).catch(() => null);
-    if (tab?.url === expectedUrl && tab.status === "complete") {
-      return true;
-    }
-    await sleep(delayMs);
-  }
-  return false;
-}
-
 async function sendMessageToTab(tabId, message) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, message, (resp) => {

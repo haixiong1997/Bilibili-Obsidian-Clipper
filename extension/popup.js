@@ -31,22 +31,7 @@ init().catch((error) => {
 
 async function init() {
   bindEvents();
-  // Check if should enter reading mode when popup opens
-  await checkAndEnterReadingMode();
   await refreshFromTab();
-}
-
-async function checkAndEnterReadingMode() {
-  const tab = await getActiveTab();
-  if (!tab?.url) return;
-  try {
-    const parsed = new URL(tab.url);
-    if (parsed.searchParams.get("boc_reader") === "1") {
-      await sendToContent({ type: "popup-trigger-reading-view" });
-    }
-  } catch (e) {
-    // ignore
-  }
 }
 
 function bindEvents() {

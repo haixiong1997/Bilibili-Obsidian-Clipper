@@ -335,46 +335,12 @@ function init() {
     state.settings = settings;
     hydrateReaderStateFromSettings(settings);
     applyReadingViewPresentation();
-
-    // Check for storage flag (for pages where URL param might be lost)
     if (shouldEnterReaderMode) {
-      enterReaderModeFromStorage().catch((error) => {
+      enterReaderMode().catch((error) => {
         renderReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
       });
-    } else {
-      // Also check storage even if URL param not present
-      checkStorageForReadingMode();
     }
   });
-
-  // Fallback: periodically check if reading mode should be entered
-  // This handles cases where URL changed after content script loaded
-  let fallbackCheckCount = 0;
-  const fallbackCheckInterval = setInterval(async () => {
-    if (state.readingViewOpen) {
-      clearInterval(fallbackCheckInterval);
-      return;
-    }
-    if (isReaderMode()) {
-      clearInterval(fallbackCheckInterval);
-      checkStorageForReadingMode().catch(() => {});
-      return;
-    }
-    // Also check chrome.storage.local (set by popup before reload)
-    try {
-      const result = await chrome.storage.local.get("bocEnterReadingMode");
-      if (result.bocEnterReadingMode === "1") {
-        clearInterval(fallbackCheckInterval);
-        document.documentElement.setAttribute("data-boc-reader-mode", "1");
-        document.body.setAttribute("data-boc-reader-mode", "1");
-        checkStorageForReadingMode().catch(() => {});
-      }
-    } catch (e) {
-      // ignore
-    }
-    fallbackCheckCount++;
-    if (fallbackCheckCount > 30) clearInterval(fallbackCheckInterval); // stop after ~3s
-  }, 100);
 }
 
 function ensureUiReady({ forceRecreate = false } = {}) {
@@ -396,31 +362,6 @@ function ensureUiReady({ forceRecreate = false } = {}) {
   if (!state.uiEventsBound) {
     bindUiEvents();
     state.uiEventsBound = true;
-  }
-}
-
-async function checkStorageForReadingMode() {
-  try {
-    const result = await chrome.storage.local.get("bocEnterReadingMode");
-    if (result.bocEnterReadingMode === "1") {
-      await chrome.storage.local.remove("bocEnterReadingMode");
-      document.documentElement.setAttribute("data-boc-reader-mode", "1");
-      document.body.setAttribute("data-boc-reader-mode", "1");
-      enterReaderMode().catch((error) => {
-        renderReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
-      });
-    }
-  } catch (e) {
-    // Storage access failed, ignore
-  }
-}
-
-async function enterReaderModeFromStorage() {
-  await enterReaderMode();
-  try {
-    await chrome.storage.local.remove("bocEnterReadingMode");
-  } catch (e) {
-    // Ignore
   }
 }
 
@@ -802,7 +743,6 @@ function startUrlWatcher() {
     if (!state.readingViewOpen && shouldEnterReaderMode) {
       document.documentElement.setAttribute("data-boc-reader-mode", "1");
       document.body.setAttribute("data-boc-reader-mode", "1");
-      chrome.storage.local.remove("bocEnterReadingMode").catch(() => {});
       renderReadingStatus("检测到阅读视图跳转，正在打开阅读模式...");
       enterReaderMode().catch((error) => {
         renderReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);

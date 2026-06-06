@@ -1960,12 +1960,22 @@ function renderReadingInfoPanel() {
 
   if (!description) {
     descriptionNode.innerHTML = '<div class="boc-reading-empty">当前视频没有简介。</div>';
+    descriptionNode.classList.remove("is-collapsed");
     descriptionBtn.hidden = true;
   } else {
-    const shortText = description.length > 220 && !state.readingDescriptionExpanded ? `${description.slice(0, 220)}...` : description;
-    descriptionNode.textContent = shortText;
-    descriptionBtn.hidden = description.length <= 220;
-    descriptionBtn.textContent = state.readingDescriptionExpanded ? "收起简介" : "展开简介";
+    descriptionNode.textContent = description;
+    descriptionNode.classList.toggle("is-collapsed", !state.readingDescriptionExpanded);
+    const computed = window.getComputedStyle(descriptionNode);
+    const lineHeight = Number.parseFloat(computed.lineHeight) || 20;
+    const clampHeight = lineHeight * 5;
+    const hasOverflow = descriptionNode.scrollHeight > clampHeight + 2;
+    if (!hasOverflow) {
+      descriptionNode.classList.remove("is-collapsed");
+      descriptionBtn.hidden = true;
+      return;
+    }
+    descriptionBtn.hidden = false;
+    descriptionBtn.textContent = state.readingDescriptionExpanded ? "收起简介" : "查看更多";
   }
 }
 

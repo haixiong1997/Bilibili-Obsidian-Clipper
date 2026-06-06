@@ -1112,30 +1112,30 @@ body[data-boc-reader-mode="1"] .boc-reading-settings-panel {
   position: fixed;
   right: var(--boc-reader-page-padding);
   top: 72px;
-  width: min(296px, calc(100vw - (var(--boc-reader-page-padding) * 2)));
+  width: min(286px, calc(100vw - (var(--boc-reader-page-padding) * 2)));
   max-height: calc(100vh - 96px);
   overflow: auto;
   display: grid;
-  gap: 12px;
+  gap: 10px;
   background: var(--boc-reader-surface-2);
 }
 
 .boc-reading-stepper-list {
   display: grid;
-  gap: 8px;
+  gap: 7px;
 }
 
 .boc-reading-stepper {
   align-items: center;
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 8px;
 }
 
 .boc-reading-stepper-title {
   min-width: 0;
   color: var(--boc-reader-text);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -1150,12 +1150,12 @@ body[data-boc-reader-mode="1"] .boc-reading-settings-panel {
 }
 
 .boc-reading-stepper-btn {
-  min-height: 30px;
+  min-height: 28px;
   border: 0;
   border-right: 1px solid var(--boc-reader-border);
   background: transparent;
   color: var(--boc-reader-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.18s ease, color 0.18s ease;
@@ -1177,12 +1177,12 @@ body[data-boc-reader-mode="1"] .boc-reading-settings-panel {
 
 body[data-boc-reader-mode="1"] .boc-reading-settings-group {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 body[data-boc-reader-mode="1"] .boc-reading-settings-group + .boc-reading-settings-group {
   border-top: 1px solid var(--boc-reader-border);
-  padding-top: 12px;
+  padding-top: 10px;
 }
 
 body[data-boc-reader-mode="1"] .boc-reading-info-group-chapters {
@@ -1192,24 +1192,24 @@ body[data-boc-reader-mode="1"] .boc-reading-info-group-chapters {
 body[data-boc-reader-mode="1"] .boc-reading-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 body[data-boc-reader-mode="1"] .boc-reading-controls .boc-reading-select {
-  min-width: 132px;
+  min-width: 118px;
 }
 
 body[data-boc-reader-mode="1"] .boc-reading-control-field .boc-reading-select {
-  min-width: 136px;
+  min-width: 118px;
 }
 
 body[data-boc-reader-mode="1"] .boc-reading-secondary-btn {
   border: 1px solid var(--boc-reader-border);
   background: var(--boc-reader-surface);
   color: var(--boc-reader-text);
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 32px;
+  padding: 0 12px;
   border-radius: 999px;
   cursor: pointer;
 }
@@ -1218,6 +1218,50 @@ body[data-boc-reader-mode="1"] .boc-reading-toggle-inline {
   width: fit-content;
   background: var(--boc-reader-surface);
   color: var(--boc-reader-text);
+}
+
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-toggle,
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-select {
+  min-height: 32px;
+  padding: 0 11px;
+  font-size: 12px;
+}
+
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-toggle {
+  gap: 6px;
+}
+
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-info-list {
+  gap: 4px;
+}
+
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-info-item {
+  gap: 8px;
+}
+
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-info-label,
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-info-value,
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-info-copy,
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-empty,
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-text-btn {
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-info-copy {
+  white-space: pre-wrap;
+}
+
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel .boc-reading-info-copy.is-collapsed {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
 }
 
 body[data-boc-reader-mode="1"] .boc-reading-rail {

@@ -647,15 +647,9 @@ function bindUiEvents() {
   });
   readingTranscriptVisible.addEventListener("change", (event) => {
     updateReaderPreferences({ readerTranscriptVisible: Boolean(event.target.checked) }, { persist: true });
-    const host = document.getElementById("boc-reading-inline-host");
-    if (host) {
-      if (event.target.checked) {
-        host.style.display = "";
-        host.style.backgroundColor = "";
-      } else {
-        host.style.display = "";
-        host.style.backgroundColor = getComputedStyle(document.querySelector(".left-container")).backgroundColor;
-      }
+    const transcript = document.querySelector(".boc-reading-transcript");
+    if (transcript) {
+      transcript.style.display = event.target.checked ? "" : "none";
     }
   });
   readingThemeSelect.addEventListener("click", () => {
@@ -1832,10 +1826,9 @@ function applyReadingViewPresentation() {
   document.body.dataset.bocReaderChapterVisibility = state.readingChapterVisibility;
   document.body.dataset.bocReaderTranscriptVisible = state.readingTranscriptVisible ? "1" : "0";
   byId(ids.readingChapterVisibilitySelect).value = state.readingChapterVisibility;
-  const main = document.getElementById("boc-reading-inline-host");
+  const main = document.querySelector(".boc-reading-transcript");
   if (main) {
-    main.style.display = "";
-    main.style.backgroundColor = state.readingTranscriptVisible ? "" : getComputedStyle(document.querySelector(".left-container")).backgroundColor;
+    main.style.display = state.readingTranscriptVisible ? "" : "none";
   }
 }
 

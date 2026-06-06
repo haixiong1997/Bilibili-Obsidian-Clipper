@@ -86,7 +86,7 @@ function bindEvents() {
     render(resp?.payload || latestPayload);
   });
 
-  el.readingViewBtn.addEventListener("click", async () => {
+  el.readingViewBtn?.addEventListener("click", async () => {
     const tab = await getActiveTab();
     if (!isSupportedSubtitlePage(tab?.url || "")) {
       setMessage("请先打开一个 B 站视频页。");

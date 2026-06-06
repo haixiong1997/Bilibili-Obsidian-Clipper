@@ -1552,6 +1552,7 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
         }
       }
       if (previousHost && previousHost !== activeHost) {
+        setReaderPlayerControlsVisible(false, previousHost);
         cleanupReaderPlayerHostNode(previousHost);
       }
       if (previousVideo !== video) {
@@ -1574,6 +1575,11 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
           clearNativeReaderFloatingStyles(activeHost);
           layoutReaderPlayerHost();
         }
+      }
+      if (state.readingNativePageMode && !isWatchlaterPage()) {
+        await ensureReaderPlayerControlsRecovered(activeHost, {
+          reason: attempt > 0 ? "mount-retry" : "mount"
+        });
       }
       if (document.pictureInPictureElement) {
         document.exitPictureInPicture().catch(() => {});
@@ -2220,6 +2226,7 @@ function cleanupReaderPlayerHost() {
   if (!playerHost) {
     return;
   }
+  setReaderPlayerControlsVisible(false, playerHost);
   cleanupReaderPlayerHostNode(playerHost);
   state.readingPlayerHost = null;
 }
@@ -2786,8 +2793,39 @@ function getReaderControlsRoot(playerHost = state.readingPlayerHost) {
   );
 }
 
+function getReaderPlayerControlsState(playerHost = state.readingPlayerHost) {
+  const controlRoot = getReaderControlsRoot(playerHost);
+  const nodes = [".bpx-player-control-wrap", ".bpx-player-control-mask", ".bpx-player-control-entity"].map(
+    (selector) => {
+      const node = controlRoot?.querySelector(selector) || null;
+      return {
+        selector,
+        exists: Boolean(node),
+        visible: isVisibleReaderControl(node)
+      };
+    }
+  );
+
+  return {
+    controlRootFound: Boolean(controlRoot),
+    hostHasNoCursor: Boolean(playerHost?.classList.contains("bpx-state-no-cursor")),
+    anyPresent: nodes.some((item) => item.exists),
+    anyHidden: nodes.some((item) => item.exists && !item.visible),
+    nodes
+  };
+}
+
+function hasReaderPlayerControlsIssue(playerHost = state.readingPlayerHost) {
+  if (!state.readingNativePageMode || !playerHost || isWatchlaterPage()) {
+    return false;
+  }
+
+  const snapshot = getReaderPlayerControlsState(playerHost);
+  return snapshot.hostHasNoCursor || (snapshot.anyPresent && snapshot.anyHidden);
+}
+
 function setReaderPlayerControlsVisible(visible, playerHost = state.readingPlayerHost) {
-  if (!state.readingNativePageMode || !isWatchlaterPage() || !playerHost) {
+  if (!state.readingNativePageMode || !playerHost) {
     return;
   }
 
@@ -2832,6 +2870,64 @@ function setReaderPlayerControlsVisible(visible, playerHost = state.readingPlaye
     playerHost.classList.add("bpx-state-no-cursor");
     playerHost.removeAttribute("data-boc-reader-no-cursor-cleared");
   }
+}
+
+async function ensureReaderPlayerControlsRecovered(
+  playerHost = state.readingPlayerHost,
+  { reason = "unknown", retryDelayMs = 90 } = {}
+) {
+  if (!state.readingNativePageMode || !playerHost || isWatchlaterPage()) {
+    return false;
+  }
+
+  const before = getReaderPlayerControlsState(playerHost);
+  logInfo("[BOC] reader controls check", {
+    reason,
+    hostClassName: typeof playerHost.className === "string" ? playerHost.className : "",
+    hostHasNoCursor: before.hostHasNoCursor,
+    controlRootFound: before.controlRootFound,
+    controls: before.nodes
+  });
+
+  if (!hasReaderPlayerControlsIssue(playerHost)) {
+    return false;
+  }
+
+  logInfo("[BOC] recovering normal reader controls", {
+    reason,
+    hostClassName: typeof playerHost.className === "string" ? playerHost.className : ""
+  });
+  setReaderPlayerControlsVisible(true, playerHost);
+  layoutReaderPlayerHost();
+
+  let after = getReaderPlayerControlsState(playerHost);
+  logInfo("[BOC] reader controls after recovery", {
+    reason,
+    hostClassName: typeof playerHost.className === "string" ? playerHost.className : "",
+    hostHasNoCursor: after.hostHasNoCursor,
+    controls: after.nodes,
+    retried: false
+  });
+  if (!hasReaderPlayerControlsIssue(playerHost)) {
+    return true;
+  }
+
+  await sleep(retryDelayMs);
+  logInfo("[BOC] retrying normal reader controls recovery", {
+    reason,
+    hostClassName: typeof playerHost.className === "string" ? playerHost.className : ""
+  });
+  setReaderPlayerControlsVisible(true, playerHost);
+  layoutReaderPlayerHost();
+  after = getReaderPlayerControlsState(playerHost);
+  logInfo("[BOC] reader controls after retry", {
+    reason,
+    hostClassName: typeof playerHost.className === "string" ? playerHost.className : "",
+    hostHasNoCursor: after.hostHasNoCursor,
+    controls: after.nodes,
+    retried: true
+  });
+  return !hasReaderPlayerControlsIssue(playerHost);
 }
 
 function scheduleReaderPlayerControlsHide(playerHost = state.readingControlsHoverHost || state.readingPlayerHost) {

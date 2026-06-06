@@ -50,6 +50,7 @@ const state = {
   selectedSubtitleUrl: "",
   selectedSubtitleLang: "",
   subtitleBody: [],
+  subtitleFetchState: "idle",
   chapters: [],
   markdown: "",
   srt: "",
@@ -770,6 +771,7 @@ function resetClipState() {
   state.selectedSubtitleUrl = "";
   state.selectedSubtitleLang = "";
   state.subtitleBody = [];
+  state.subtitleFetchState = "idle";
   state.chapters = [];
   state.markdown = "";
   state.srt = "";
@@ -797,6 +799,10 @@ async function refreshClip() {
     setBusyState(true);
     setMessage("");
     setStatus("正在抓取视频信息...");
+    state.subtitleFetchState = "loading";
+    if (state.readingViewOpen) {
+      renderReadingView();
+    }
     state.settings = await getSettings();
     ensureRunActive(runId);
 
@@ -974,6 +980,7 @@ async function refreshClip() {
         lanDoc: selected.lanDoc
       });
     }
+    state.subtitleFetchState = "ready";
     renderMeta();
     renderSubtitleSelect();
     if (state.readingViewOpen) {
@@ -989,7 +996,12 @@ async function refreshClip() {
     if (isStaleRunError(error)) {
       return;
     }
+    state.subtitleFetchState = "error";
     resetClipState();
+    state.subtitleFetchState = "error";
+    if (state.readingViewOpen) {
+      renderReadingView();
+    }
     if (error?.code === "SUBTITLE_DURATION_MISMATCH") {
       setStatus("抓取失败：未找到与当前视频时长匹配的字幕轨，可能该视频无可用字幕。");
       return;
@@ -1058,6 +1070,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
         state.selectedSubtitleUrl = url;
         state.selectedSubtitleLang = lang;
         state.subtitleBody = cachedBody;
+        state.subtitleFetchState = "ready";
         state.markdown = buildMarkdown(state, cachedBody, state.settings);
         state.srt = buildSrt(cachedBody);
         state.txt = buildTxt(cachedBody, state.settings);
@@ -1093,6 +1106,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
   state.selectedSubtitleUrl = url;
   state.selectedSubtitleLang = lang;
   state.subtitleBody = body;
+  state.subtitleFetchState = "ready";
   state.markdown = buildMarkdown(state, body, state.settings);
   state.srt = buildSrt(body);
   state.txt = buildTxt(body, state.settings);
@@ -1271,6 +1285,7 @@ function getPopupPayload() {
   });
 
   return {
+    contentVersion: BOC_VERSION,
     url: location.href,
     title: state.title || "",
     author: state.author || "",
@@ -1394,6 +1409,7 @@ function applyNoSubtitleState() {
   state.selectedSubtitleUrl = "";
   state.selectedSubtitleLang = "";
   state.subtitleBody = [];
+  state.subtitleFetchState = "empty";
   state.markdown = "";
   state.srt = "";
   state.txt = "";
@@ -1420,10 +1436,7 @@ async function enterReaderMode() {
   applyReadingViewPresentation();
   alignReaderViewportToPlayer();
   await sleep(0);
-  readingView.classList.add("open", "reader-page");
-  readingView.setAttribute("aria-hidden", "false");
-  setReadingViewReady(false);
-  renderReadingStatus("正在准备播放器和字幕...");
+  openReaderViewShell(readingView);
   applyReaderPageFocus();
   renderReadingView();
   await sleep(0);
@@ -1465,28 +1478,50 @@ function finishEnterReaderMode() {
   alignReaderViewportToPlayer();
   moveReadingMainInline();
   scheduleReaderMiniPlayerDismiss();
+  maybeRefreshReaderSubtitleInBackground();
+  syncReaderModeAfterMount();
+  settleReaderModePresentation();
+}
 
-  if (!state.subtitleBody.length) {
-    refreshClip().catch((error) => {
-      if (!isStaleRunError(error)) {
-        renderReadingStatus(`字幕加载失败：${getErrorMessage(error)}`);
-      }
-    });
+function openReaderViewShell(readingView = byId(ids.readingView)) {
+  if (!readingView) {
+    return;
   }
+  readingView.classList.add("open", "reader-page");
+  readingView.setAttribute("aria-hidden", "false");
+  setReadingViewReady(false);
+  renderReadingStatus("正在准备播放器和字幕...");
+}
 
+function maybeRefreshReaderSubtitleInBackground() {
+  if (state.subtitleBody.length) {
+    return;
+  }
+  refreshClip().catch((error) => {
+    if (!isStaleRunError(error)) {
+      renderReadingStatus(`字幕加载失败：${getErrorMessage(error)}`);
+    }
+  });
+}
+
+function syncReaderModeAfterMount() {
   startReadingViewSync();
   startReaderPlayerObserver();
   layoutReaderPlayerHost();
   syncReadingViewPlayback(true);
   updateReaderFollowState();
+}
+
+function settleReaderModePresentation() {
   if (!isReaderPresentationStable()) {
     setReadingViewReady(false);
     renderReadingStatus("正在稳定播放器布局...");
     scheduleReaderPlayerRetry();
-    return;
+    return false;
   }
   setReadingViewReady(true);
   renderReadingStatus("阅读视图已就绪，播放视频时字幕会自动高亮。");
+  return true;
 }
 
 async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayout = false } = {}) {
@@ -1660,7 +1695,9 @@ function renderReadingView() {
   }
 
   if (transcriptItems.length === 0) {
-    transcriptList.innerHTML = '<div class="boc-reading-empty">当前视频无字幕。</div>';
+    transcriptList.innerHTML = `<div class="boc-reading-empty">${escapeHtml(
+      getReadingTranscriptPlaceholderText()
+    )}</div>`;
   } else {
     transcriptList.innerHTML = transcriptItems
       .map(
@@ -1693,6 +1730,16 @@ function renderReadingView() {
   updateReadingTranscriptTailSpacer();
   state.readingActiveSubtitleIndex = -1;
   state.readingActiveChapterIndex = -1;
+}
+
+function getReadingTranscriptPlaceholderText() {
+  if (state.subtitleFetchState === "loading") {
+    return "正在加载字幕...";
+  }
+  if (state.subtitleFetchState === "error") {
+    return "字幕加载失败，请刷新重试。";
+  }
+  return "当前视频无字幕。";
 }
 
 function getReadingTranscriptItems(body = state.subtitleBody) {

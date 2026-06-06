@@ -16,6 +16,7 @@ const el = {
 };
 
 let latestPayload = null;
+const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || "";
 const DEFAULT_SETTINGS = {
   downloadFormat: "srt"
 };
@@ -298,18 +299,8 @@ async function ensureContentScriptReady(tabId) {
     throw new Error("请刷新浏览器网页重试，或当前网页不支持");
   }
 
-  let alreadyLoaded = false;
-  try {
-    const probe = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => Boolean(globalThis.__BOC_CONTENT_SCRIPT_LOADED__)
-    });
-    alreadyLoaded = Boolean(probe?.[0]?.result);
-  } catch {
-    alreadyLoaded = false;
-  }
-
-  if (alreadyLoaded) {
+  const loadedVersion = await probeContentScriptVersion(tabId);
+  if (loadedVersion === EXPECTED_CONTENT_SCRIPT_VERSION) {
     return;
   }
 
@@ -328,6 +319,23 @@ async function ensureContentScriptReady(tabId) {
     if (!message.includes("Identifier 'DEFAULT_SETTINGS' has already been declared")) {
       throw error;
     }
+  }
+
+  const reinjectedVersion = await probeContentScriptVersion(tabId);
+  if (reinjectedVersion !== EXPECTED_CONTENT_SCRIPT_VERSION) {
+    throw new Error("扩展刚更新，请刷新当前页面后重试。");
+  }
+}
+
+async function probeContentScriptVersion(tabId) {
+  try {
+    const probe = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => globalThis.__BOC_CONTENT_SCRIPT_LOADED__ || ""
+    });
+    return String(probe?.[0]?.result || "");
+  } catch {
+    return "";
   }
 }
 

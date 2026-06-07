@@ -1105,6 +1105,8 @@ body[data-boc-reader-mode="1"][data-boc-reader-line-height="loose"],
 
 body[data-boc-reader-mode="1"] .boc-reading-actions {
   gap: 12px;
+  margin-right: -20px;
+  margin-top: -8px;
 }
 
 body[data-boc-reader-mode="1"] .boc-reading-header {

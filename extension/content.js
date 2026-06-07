@@ -1214,7 +1214,7 @@ function renderMeta() {
   const subtitleCount = state.subtitles.length;
   meta.innerHTML = `
     <div class="boc-meta-item"><strong>标题：</strong>${escapeHtml(state.title)}</div>
-    <div class="boc-meta-item"><strong>URL：</strong>${escapeHtml(location.href)}</div>
+    <div class="boc-meta-item"><strong>URL：</strong>${escapeHtml(cleanVideoUrl())}</div>
     <div class="boc-meta-item"><strong>作者：</strong>${escapeHtml(state.author || "未知")}</div>
     <div class="boc-meta-item"><strong>日期：</strong>${escapeHtml(state.uploadDate || "未知")}</div>
     <div class="boc-meta-item"><strong>字幕轨：</strong>${subtitleCount}</div>
@@ -1299,7 +1299,7 @@ function getPopupPayload() {
 
   return {
     contentVersion: BOC_VERSION,
-    url: location.href,
+    url: cleanVideoUrl(),
     title: state.title || "",
     author: state.author || "",
     uploadDate: state.uploadDate || "",
@@ -2210,7 +2210,7 @@ function createReaderDebugSnapshot(label = "manual") {
 
   return {
     label: String(label || "manual"),
-    url: location.href,
+    url: cleanVideoUrl(),
     readerMode: document.documentElement.getAttribute("data-boc-reader-mode"),
     readingActive: document.body.getAttribute("data-boc-reading-active"),
     readingViewOpen: state.readingViewOpen,
@@ -3804,6 +3804,33 @@ function extractBvid(url) {
   return "";
 }
 
+function cleanVideoUrl(href = location.href) {
+  try {
+    const parsed = new URL(href);
+    if (parsed.hostname !== "www.bilibili.com") {
+      return href;
+    }
+
+    if (parsed.pathname === "/list/watchlater" || parsed.pathname === "/list/watchlater/") {
+      const bvid = extractBvid(href);
+      if (bvid) {
+        return `https://www.bilibili.com/video/${bvid}/`;
+      }
+      return href;
+    }
+
+    const bvid = extractBvid(href);
+    if (!bvid) {
+      return href;
+    }
+    const p = parsed.searchParams.get("p");
+    const qs = p ? `?p=${encodeURIComponent(p)}` : "";
+    return `https://www.bilibili.com/video/${bvid}/${qs}`;
+  } catch {
+    return href;
+  }
+}
+
 function extractPageIndex(url) {
   try {
     const page = Number(new URL(url).searchParams.get("p") || "1");
@@ -4567,7 +4594,7 @@ function buildFrontMatter(meta, settings, created, tagsYaml) {
 
   const fieldLines = {
     title: `title: "${escapeYaml(meta.title)}"`,
-    url: `url: "${escapeYaml(location.href)}"`,
+    url: `url: "${escapeYaml(cleanVideoUrl())}"`,
     bvid: `bvid: "${escapeYaml(meta.bvid)}"`,
     cid: `cid: "${escapeYaml(meta.cid)}"`,
     author: `author: "${escapeYaml(meta.author || "unknown")}"`,

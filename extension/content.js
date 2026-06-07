@@ -65,7 +65,7 @@ const state = {
   readingLetterSpacing: "normal",
   readingLineHeight: "tight",
   readingContentWidth: "medium",
-  readingChapterVisibility: "show",
+  readingChapterVisible: true,
   readingTranscriptVisible: true,
   readingSettingsExpanded: false,
   readingDescriptionExpanded: false,
@@ -323,6 +323,7 @@ const ids = {
   readingLineHeightSelect: "boc-reading-line-height-select",
   readingContentWidthSelect: "boc-reading-content-width-select",
   readingChapterVisibilitySelect: "boc-reading-chapter-visibility-select",
+  readingChapterVisible: "boc-reading-chapter-visible",
   readingSubtitleSelect: "boc-reading-subtitle-select",
   readingInfoSummary: "boc-reading-info-summary",
   readingInfoDescription: "boc-reading-info-description",
@@ -543,17 +544,6 @@ function buildUiHtml() {
             </section>
 
             <section class="boc-reading-settings-group">
-              <div class="boc-reading-eyebrow">章节</div>
-              <div class="boc-reading-controls">
-                <select id="${ids.readingChapterVisibilitySelect}" class="boc-reading-select boc-reading-select-sm" aria-label="章节展示">
-                  <option value="show">展示</option>
-                  <option value="hide">隐藏</option>
-                  <option value="auto">自动</option>
-                </select>
-              </div>
-            </section>
-
-            <section class="boc-reading-settings-group">
               <div class="boc-reading-controls">
                 <label class="boc-reading-toggle boc-reading-toggle-inline">
                   <input id="${ids.readingAutoScroll}" type="checkbox" checked />
@@ -562,6 +552,10 @@ function buildUiHtml() {
                 <label class="boc-reading-toggle boc-reading-toggle-inline">
                   <input id="${ids.readingTranscriptVisible}" type="checkbox" checked />
                   <span>字幕</span>
+                </label>
+                <label class="boc-reading-toggle boc-reading-toggle-inline">
+                  <input id="${ids.readingChapterVisible}" type="checkbox" checked />
+                  <span>章节</span>
                 </label>
               </div>
             </section>
@@ -619,7 +613,6 @@ function bindUiEvents() {
   const readingLetterSpacingSelect = byId(ids.readingLetterSpacingSelect);
   const readingLineHeightSelect = byId(ids.readingLineHeightSelect);
   const readingContentWidthSelect = byId(ids.readingContentWidthSelect);
-  const readingChapterVisibilitySelect = byId(ids.readingChapterVisibilitySelect);
   const readingDescriptionBtn = byId(ids.readingDescriptionBtn);
   const chapterList = byId(ids.readingChapterList);
   const transcriptList = byId(ids.readingTranscriptList);
@@ -652,6 +645,12 @@ function bindUiEvents() {
       main.style.display = event.target.checked ? "" : "none";
     }
   });
+  const readingChapterVisible = byId(ids.readingChapterVisible);
+  if (readingChapterVisible) {
+    readingChapterVisible.addEventListener("change", (event) => {
+      updateReaderPreferences({ readerChapterVisible: Boolean(event.target.checked) }, { persist: true });
+    });
+  }
   readingThemeSelect.addEventListener("click", () => {
     const themes = ["light", "dark", "paper"];
     const current = state.readingTheme || "light";
@@ -673,9 +672,6 @@ function bindUiEvents() {
   bindReaderStepperControl(readingLetterSpacingSelect, "readerLetterSpacing");
   bindReaderStepperControl(readingLineHeightSelect, "readerLineHeight");
   bindReaderStepperControl(readingContentWidthSelect, "readerContentWidth");
-  readingChapterVisibilitySelect.addEventListener("change", (event) => {
-    updateReaderPreferences({ readerChapterVisibility: event.target.value }, { persist: true });
-  });
 
   const readingSubtitleSelect = byId(ids.readingSubtitleSelect);
   readingSubtitleSelect.addEventListener("change", (event) => {
@@ -1798,7 +1794,7 @@ function hydrateReaderStateFromSettings(settings = state.settings) {
   state.readingLetterSpacing = normalizeReaderLetterSpacing(settings?.readerLetterSpacing ?? settings?.readerLineHeight);
   state.readingLineHeight = normalizeReaderLineHeight(settings?.readerLineHeight);
   state.readingContentWidth = normalizeReaderContentWidth(settings?.readerContentWidth);
-  state.readingChapterVisibility = normalizeReaderChapterVisibility(settings?.readerChapterVisibility);
+  state.readingChapterVisible = settings?.readerChapterVisible !== undefined ? Boolean(settings.readerChapterVisible) : true;
   state.readingTranscriptVisible = normalizeReaderTranscriptVisible(settings?.readerTranscriptVisible);
 }
 
@@ -1809,23 +1805,26 @@ function applyReadingViewPresentation() {
   readingView.dataset.letterSpacing = state.readingLetterSpacing;
   readingView.dataset.lineHeight = state.readingLineHeight;
   readingView.dataset.contentWidth = state.readingContentWidth;
-  readingView.dataset.chapterVisibility = state.readingChapterVisibility;
+  readingView.dataset.chapterVisibility = state.readingChapterVisible ? "auto" : "hide";
   readingView.dataset.transcriptVisible = state.readingTranscriptVisible ? "1" : "0";
   document.documentElement.dataset.bocReaderTheme = state.readingTheme;
   document.documentElement.dataset.bocReaderFontScale = state.readingFontScale;
   document.documentElement.dataset.bocReaderLetterSpacing = state.readingLetterSpacing;
   document.documentElement.dataset.bocReaderLineHeight = state.readingLineHeight;
   document.documentElement.dataset.bocReaderContentWidth = state.readingContentWidth;
-  document.documentElement.dataset.bocReaderChapterVisibility = state.readingChapterVisibility;
+  document.documentElement.dataset.bocReaderChapterVisibility = state.readingChapterVisible ? "auto" : "hide";
   document.documentElement.dataset.bocReaderTranscriptVisible = state.readingTranscriptVisible ? "1" : "0";
   document.body.dataset.bocReaderTheme = state.readingTheme;
   document.body.dataset.bocReaderFontScale = state.readingFontScale;
   document.body.dataset.bocReaderLetterSpacing = state.readingLetterSpacing;
   document.body.dataset.bocReaderLineHeight = state.readingLineHeight;
   document.body.dataset.bocReaderContentWidth = state.readingContentWidth;
-  document.body.dataset.bocReaderChapterVisibility = state.readingChapterVisibility;
+  document.body.dataset.bocReaderChapterVisibility = state.readingChapterVisible ? "auto" : "hide";
   document.body.dataset.bocReaderTranscriptVisible = state.readingTranscriptVisible ? "1" : "0";
-  byId(ids.readingChapterVisibilitySelect).value = state.readingChapterVisibility;
+  const readingChapterVisibleEl = byId(ids.readingChapterVisible);
+  if (readingChapterVisibleEl) {
+    readingChapterVisibleEl.checked = state.readingChapterVisible;
+  }
   const main = document.querySelector(".boc-reading-main");
   if (main) {
     main.style.display = state.readingTranscriptVisible ? "" : "none";
@@ -2055,9 +2054,7 @@ function updateReaderPreferences(next, { persist = true } = {}) {
   );
   state.readingLineHeight = normalizeReaderLineHeight(next.readerLineHeight ?? state.readingLineHeight);
   state.readingContentWidth = normalizeReaderContentWidth(next.readerContentWidth ?? state.readingContentWidth);
-  state.readingChapterVisibility = normalizeReaderChapterVisibility(
-    next.readerChapterVisibility ?? state.readingChapterVisibility
-  );
+  state.readingChapterVisible = next.readerChapterVisible !== undefined ? Boolean(next.readerChapterVisible) : state.readingChapterVisible;
   state.readingTranscriptVisible = normalizeReaderTranscriptVisible(
     next.readerTranscriptVisible ?? state.readingTranscriptVisible
   );
@@ -2068,7 +2065,7 @@ function updateReaderPreferences(next, { persist = true } = {}) {
     readerLetterSpacing: state.readingLetterSpacing,
     readerLineHeight: state.readingLineHeight,
     readerContentWidth: state.readingContentWidth,
-    readerChapterVisibility: state.readingChapterVisibility,
+    readerChapterVisible: state.readingChapterVisible,
     readerTranscriptVisible: state.readingTranscriptVisible
   };
   applyReadingViewPresentation();

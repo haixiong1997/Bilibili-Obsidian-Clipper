@@ -754,10 +754,12 @@ function startUrlWatcher() {
     }
     if (state.readingViewOpen || shouldEnterReaderMode) {
       renderReadingStatus("检测到视频变化，正在自动刷新字幕...");
-      refreshClip().catch((error) => {
-        if (!isStaleRunError(error)) {
-          renderReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
-        }
+      waitForVideoMetadata().then(() => {
+        refreshClip().catch((error) => {
+          if (!isStaleRunError(error)) {
+            renderReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
+          }
+        });
       });
       return;
     }

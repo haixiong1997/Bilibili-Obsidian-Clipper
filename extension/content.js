@@ -4046,14 +4046,7 @@ function readVideoDescription() {
   const descNode = document.querySelector(
     ".desc-info-text, .video-desc .desc-info-text, .video-info-detail .text, .basic-desc-info"
   );
-  if (descNode?.textContent?.trim()) {
-    return descNode.textContent.trim();
-  }
-
-  const metaDesc =
-    document.querySelector('meta[name="description"]') ||
-    document.querySelector('meta[property="og:description"]');
-  return metaDesc?.getAttribute("content")?.trim() || "";
+  return descNode?.textContent?.trim() || "";
 }
 
 function readUploadDate() {

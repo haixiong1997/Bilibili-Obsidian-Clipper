@@ -15,6 +15,12 @@
 - 下载字幕文件（`srt/txt`）
 - 保存到 Obsidian（Local REST API）
 
+### 阅读视图（v1.0.18+）
+
+沉浸式布局，支持排版调整、主题切换、字幕同步等。
+
+> 稍后再看页面的阅读视图体验尚不完善，推荐在普通视频页使用。
+
 ## 功能图片演示
 
 ![Bilibili Obsidian Clipper 功能演示](docs/images/feature-demo-v2.png)

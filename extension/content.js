@@ -733,13 +733,12 @@ function startUrlWatcher() {
   state.urlWatcherStarted = true;
 
   window.setInterval(() => {
-    const nextUrl = location.href;
     const nextSignature = computeCurrentClipSignature();
-    if (nextUrl === state.currentUrl && nextSignature === state.currentClipSignature) {
+    if (nextSignature === state.currentClipSignature) {
       return;
     }
 
-    state.currentUrl = nextUrl;
+    state.currentUrl = location.href;
     state.currentClipSignature = nextSignature;
     ensureUiReady();
     resetClipState();

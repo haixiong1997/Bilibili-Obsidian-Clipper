@@ -2,8 +2,8 @@
 
 [![GitHub all releases downloads](https://img.shields.io/github/downloads/haixiong1997/Bilibili-Obsidian-Clipper/total?style=flat-square&logo=github&label=downloads)](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper/releases)
 [![Chrome Web Store users](https://img.shields.io/chrome-web-store/users/jokophbofiphenlplmohabdcmalcbenl?style=flat-square&logo=google-chrome&logoColor=white&label=chrome)](https://chromewebstore.google.com/detail/jokophbofiphenlplmohabdcmalcbenl)
-[![GitHub release](https://img.shields.io/github/v/release/haixiong1997/Bilibili-Obsidian-Clipper?style=flat-square&logo=github&label=release)](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper/releases)
-[![GitHub license](https://img.shields.io/github/license/haixiong1997/Bilibili-Obsidian-Clipper?style=flat-square&logo=github&label=license)](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper/blob/main/LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/haixiong1997/Bilibili-Obsidian-Clipper?style=flat-square&label=version)](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper/releases)
+[![GitHub license](https://img.shields.io/github/license/haixiong1997/Bilibili-Obsidian-Clipper?style=flat-square&label=license)](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper/blob/main/LICENSE)
 
 推荐官方插件市场下载：[Chrome](https://chromewebstore.google.com/detail/jokophbofiphenlplmohabdcmalcbenl?utm_source=item-share-cb) · [Edge](https://microsoftedge.microsoft.com/addons/detail/fbeeapnjdjgacilaobonekidbfjcmdjo) · [Firefox](https://addons.mozilla.org/addon/bilibili-obsidian-clipper/)
 

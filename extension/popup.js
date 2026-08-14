@@ -11,15 +11,43 @@ const el = {
   copyBtn: document.getElementById("copyBtn"),
   downloadBtn: document.getElementById("downloadBtn"),
   sendBtn: document.getElementById("sendBtn"),
+  fnsSendBtn: document.getElementById("fnsSendBtn"),
   readingViewBtn: document.getElementById("readingViewBtn"),
   aiBtn: document.getElementById("aiBtn"),
-  settingsBtn: document.getElementById("settingsBtn")
+  settingsBtn: document.getElementById("settingsBtn"),
+  // 批量抓取
+  batchBtn: document.getElementById("batchBtn"),
+  batchView: document.getElementById("batchView"),
+  batchBackBtn: document.getElementById("batchBackBtn"),
+  batchTitle: document.getElementById("batchTitle"),
+  batchCount: document.getElementById("batchCount"),
+  batchSelectAllBtn: document.getElementById("batchSelectAllBtn"),
+  batchSelectNoneBtn: document.getElementById("batchSelectNoneBtn"),
+  batchSelectedCount: document.getElementById("batchSelectedCount"),
+  batchTotalCount: document.getElementById("batchTotalCount"),
+  batchStatus: document.getElementById("batchStatus"),
+  batchList: document.getElementById("batchList"),
+  batchProgress: document.getElementById("batchProgress"),
+  batchProgressBar: document.getElementById("batchProgressBar"),
+  batchProgressText: document.getElementById("batchProgressText"),
+  batchSendBtn: document.getElementById("batchSendBtn"),
+  batchFnsSendBtn: document.getElementById("batchFnsSendBtn"),
+  batchMessage: document.getElementById("batchMessage")
 };
 
 let latestPayload = null;
 const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || "";
 const DEFAULT_SETTINGS = {
   downloadFormat: "srt"
+};
+
+// 批量抓取会话（popup 端）
+const batchSession = {
+  list: null,
+  items: [],
+  selectedIds: new Set(),
+  fetching: false,
+  fetchedResults: []
 };
 
 function formatLocalDate(value = Date.now()) {
@@ -86,6 +114,40 @@ function bindEvents() {
       setMessage(`发送失败：${resp?.error || "未知错误"}`);
     }
     render(resp?.payload || latestPayload);
+  });
+
+  el.fnsSendBtn.addEventListener("click", async () => {
+    setStatus("正在保存到 FNS...");
+    const resp = await sendToContent({ type: "popup-send-fns" });
+    if (!resp?.ok) {
+      setStatus(`保存失败：${resp?.error || "未知错误"}`, true);
+      setMessage(`保存失败：${resp?.error || "未知错误"}`);
+    }
+    render(resp?.payload || latestPayload);
+  });
+
+  el.batchBtn?.addEventListener("click", async () => {
+    await openBatchView();
+  });
+
+  el.batchBackBtn?.addEventListener("click", () => {
+    closeBatchView();
+  });
+
+  el.batchSelectAllBtn?.addEventListener("click", () => {
+    selectAllBatchItems(true);
+  });
+
+  el.batchSelectNoneBtn?.addEventListener("click", () => {
+    selectAllBatchItems(false);
+  });
+
+  el.batchSendBtn?.addEventListener("click", async () => {
+    await runBatchFetchAndSave("obsidian");
+  });
+
+  el.batchFnsSendBtn?.addEventListener("click", async () => {
+    await runBatchFetchAndSave("fns");
   });
 
   el.readingViewBtn?.addEventListener("click", async () => {
@@ -419,4 +481,333 @@ async function getSettingsFromRuntime() {
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
+}
+
+// ===== 批量抓取（合集 / 多 P）=====
+async function openBatchView() {
+  if (!el.batchView) {
+    return;
+  }
+  el.batchView.hidden = false;
+  resetBatchSession();
+  setBatchStatus("正在获取分集列表...");
+  setBatchMessage("");
+  el.batchList.innerHTML = "";
+  updateBatchSendButton();
+  el.batchProgress.hidden = true;
+
+  const resp = await sendToContent({ type: "popup-get-batch-list" });
+  if (!resp?.ok) {
+    setBatchStatus(`获取分集列表失败：${resp?.error || "未知错误"}`, true);
+    return;
+  }
+  const payload = resp.payload || {};
+  batchSession.list = payload;
+  batchSession.items = Array.isArray(payload.items) ? payload.items : [];
+
+  const typeLabel =
+    payload.type === "ugc_season"
+      ? "合集"
+      : payload.type === "multi_p"
+      ? `多 P（共 ${payload.pageCount || payload.total || 0} 集）`
+      : "单集";
+  el.batchTitle.textContent = `${typeLabel}：${payload.title || payload.mainBvid || "未知"}`;
+  el.batchTitle.title = el.batchTitle.textContent;
+  el.batchCount.textContent = String(payload.total || 0);
+  el.batchTotalCount.textContent = String(payload.total || 0);
+  setBatchStatus(
+    payload.total > 0
+      ? `共 ${payload.total} 个分集，勾选需要批量抓取的项后点击“批量保存”。`
+      : "未发现可批量抓取的分集。"
+  );
+
+  renderBatchList(batchSession.items);
+  // 默认全选，方便用户直接使用
+  selectAllBatchItems(true);
+}
+
+function closeBatchView() {
+  if (!el.batchView) {
+    return;
+  }
+  el.batchView.hidden = true;
+  if (batchSession.fetching) {
+    // 通知 content 取消会话
+    sendToContent({ type: "popup-batch-cancel" }).catch(() => {});
+  }
+  resetBatchSession();
+}
+
+function resetBatchSession() {
+  batchSession.list = null;
+  batchSession.items = [];
+  batchSession.selectedIds = new Set();
+  batchSession.fetching = false;
+  batchSession.fetchedResults = [];
+}
+
+function renderBatchList(items) {
+  if (!el.batchList) {
+    return;
+  }
+  const safeItems = Array.isArray(items) ? items : [];
+  el.batchList.innerHTML = safeItems
+    .map((item, index) => {
+      const checked = batchSession.selectedIds.has(item.id) ? "checked" : "";
+      const prefix =
+        item.type === "multi_p"
+          ? `P${item.pageIndex || index + 1}`
+          : item.type === "ugc_season"
+          ? `EP${index + 1}`
+          : "";
+      const durationText = item.duration > 0 ? ` · ${formatDurationLabel(item.duration)}` : "";
+      const metaParts = [];
+      if (prefix) {
+        metaParts.push(`<span class="batch-item-prefix">${escapeHtml(prefix)}</span>`);
+      }
+      if (item.section) {
+        metaParts.push(`<span class="batch-item-section">${escapeHtml(item.section)}</span>`);
+      }
+      metaParts.push(`<span class="batch-item-duration">${escapeHtml(durationText)}</span>`);
+      return `
+        <li class="batch-item" data-id="${escapeHtml(item.id)}" data-index="${index}">
+          <input type="checkbox" ${checked} aria-label="选择该分集" />
+          <div class="batch-item-main">
+            <div class="batch-item-title">${escapeHtml(item.pageTitle || item.bvid || "未知分集")}</div>
+            <div class="batch-item-meta">${metaParts.join("")}</div>
+            <div class="batch-item-status is-pending" data-status>等待抓取</div>
+          </div>
+        </li>
+      `;
+    })
+    .join("");
+
+  el.batchList.querySelectorAll(".batch-item").forEach((node) => {
+    const id = node.getAttribute("data-id");
+    const checkbox = node.querySelector('input[type="checkbox"]');
+    node.addEventListener("click", (event) => {
+      if (event.target === checkbox) {
+        return;
+      }
+      checkbox.checked = !checkbox.checked;
+      toggleBatchItemSelection(id, checkbox.checked);
+    });
+    checkbox.addEventListener("change", () => {
+      toggleBatchItemSelection(id, checkbox.checked);
+    });
+  });
+
+  updateBatchSelectedCount();
+  updateBatchSendButton();
+}
+
+function toggleBatchItemSelection(id, selected) {
+  if (!id) {
+    return;
+  }
+  if (selected) {
+    batchSession.selectedIds.add(id);
+  } else {
+    batchSession.selectedIds.delete(id);
+  }
+  updateBatchSelectedCount();
+  updateBatchSendButton();
+}
+
+function selectAllBatchItems(selectAll) {
+  if (selectAll) {
+    batchSession.items.forEach((item) => batchSession.selectedIds.add(item.id));
+  } else {
+    batchSession.selectedIds.clear();
+  }
+  el.batchList.querySelectorAll('.batch-item input[type="checkbox"]').forEach((cb) => {
+    cb.checked = selectAll;
+  });
+  updateBatchSelectedCount();
+  updateBatchSendButton();
+}
+
+function updateBatchSelectedCount() {
+  const total = batchSession.items.length;
+  const selected = batchSession.selectedIds.size;
+  if (el.batchSelectedCount) {
+    el.batchSelectedCount.textContent = String(selected);
+  }
+  if (el.batchTotalCount) {
+    el.batchTotalCount.textContent = String(total);
+  }
+}
+
+function updateBatchSendButton() {
+  const disabled = batchSession.fetching || batchSession.selectedIds.size === 0;
+  if (el.batchSendBtn) {
+    el.batchSendBtn.disabled = disabled;
+  }
+  if (el.batchFnsSendBtn) {
+    el.batchFnsSendBtn.disabled = disabled;
+  }
+}
+
+function setBatchStatus(text, isError = false) {
+  if (!el.batchStatus) {
+    return;
+  }
+  el.batchStatus.textContent = String(text || "");
+  el.batchStatus.classList.toggle("is-error", Boolean(isError));
+}
+
+function setBatchMessage(text) {
+  if (!el.batchMessage) {
+    return;
+  }
+  el.batchMessage.textContent = String(text || "");
+}
+
+function setBatchItemStatus(index, text, kind = "pending") {
+  const node = el.batchList?.querySelector(`.batch-item[data-index="${index}"] [data-status]`);
+  if (!node) {
+    return;
+  }
+  node.textContent = String(text || "");
+  node.classList.remove("is-ok", "is-err", "is-pending");
+  if (kind === "ok") {
+    node.classList.add("is-ok");
+  } else if (kind === "err") {
+    node.classList.add("is-err");
+  } else {
+    node.classList.add("is-pending");
+  }
+}
+
+function setBatchProgress(current, total, text) {
+  if (!el.batchProgress) {
+    return;
+  }
+  el.batchProgress.hidden = false;
+  const ratio = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+  if (el.batchProgressBar) {
+    el.batchProgressBar.style.width = `${ratio}%`;
+  }
+  if (el.batchProgressText) {
+    el.batchProgressText.textContent =
+      text || `正在抓取 ${current}/${total}（${ratio}%）`;
+  }
+}
+
+function formatDurationLabel(seconds) {
+  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+  if (safe <= 0) {
+    return "";
+  }
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  if (h > 0) {
+    return `${h}时${m}分`;
+  }
+  if (m > 0) {
+    return `${m}分${s > 0 ? `${s}秒` : ""}`;
+  }
+  return `${s}秒`;
+}
+
+async function runBatchFetchAndSave(target = "obsidian") {
+  if (batchSession.fetching) {
+    return;
+  }
+  const selectedItems = batchSession.items.filter((item) => batchSession.selectedIds.has(item.id));
+  if (selectedItems.length === 0) {
+    setBatchMessage("请先勾选要批量抓取的分集。");
+    return;
+  }
+
+  // 直接启动新会话；startBatchSession 内部会重置 items/results，无需先 cancel
+  //（cancel 会清空 content 端的 list，导致 start 找不到列表）
+  const startResp = await sendToContent({
+    type: "popup-batch-start",
+    selectedIds: selectedItems.map((item) => item.id)
+  });
+  if (!startResp?.ok) {
+    setBatchStatus(`启动批量抓取失败：${startResp?.error || "未知错误"}`, true);
+    return;
+  }
+
+  batchSession.fetching = true;
+  batchSession.fetchedResults = [];
+  updateBatchSendButton();
+  setBatchMessage("");
+  setBatchStatus(`开始批量抓取 ${selectedItems.length} 个分集...`);
+
+  const total = selectedItems.length;
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (let i = 0; i < selectedItems.length; i++) {
+    const item = selectedItems[i];
+    const originalIndex = batchSession.items.indexOf(item);
+    setBatchItemStatus(originalIndex, "正在抓取...", "pending");
+    setBatchProgress(i, total, `正在抓取 ${i + 1}/${total}：${item.pageTitle || item.id}`);
+
+    try {
+      const resp = await sendToContent({ type: "popup-batch-fetch-item", index: i });
+      if (resp?.ok && resp.payload) {
+        batchSession.fetchedResults.push(resp.payload);
+        if (resp.payload.hasSubtitle) {
+          successCount += 1;
+          setBatchItemStatus(
+            originalIndex,
+            `已抓取${resp.payload.subtitleLang ? `（${resp.payload.subtitleLang}）` : ""}`,
+            "ok"
+          );
+        } else {
+          failedCount += 1;
+          setBatchItemStatus(
+            originalIndex,
+            `无字幕${resp.payload.error ? `：${resp.payload.error}` : ""}`,
+            "err"
+          );
+        }
+      } else {
+        failedCount += 1;
+        batchSession.fetchedResults.push(resp?.payload || { index: i, hasSubtitle: false });
+        setBatchItemStatus(
+          originalIndex,
+          `失败：${resp?.error || "未知错误"}`,
+          "err"
+        );
+      }
+    } catch (error) {
+      failedCount += 1;
+      setBatchItemStatus(originalIndex, `失败：${error?.message || "未知错误"}`, "err");
+    }
+
+    // 简单的节流，避免触发 B 站风控
+    if (i < selectedItems.length - 1) {
+      await sleep(300);
+    }
+  }
+
+  setBatchProgress(total, total, `抓取完成：成功 ${successCount}，失败 ${failedCount}`);
+
+  if (successCount === 0) {
+    setBatchStatus("抓取完成但未获取到任何字幕，已停止保存。", true);
+    batchSession.fetching = false;
+    updateBatchSendButton();
+    return;
+  }
+
+  const destLabel = target === "fns" ? "FNS" : "Obsidian";
+  const saveType = target === "fns" ? "popup-batch-save-fns" : "popup-batch-save";
+  setBatchStatus(`抓取完成，正在保存到 ${destLabel}（${successCount}/${total} 条字幕）...`);
+  const saveResp = await sendToContent({ type: saveType });
+  batchSession.fetching = false;
+  updateBatchSendButton();
+
+  if (!saveResp?.ok) {
+    setBatchStatus(`保存失败：${saveResp?.error || "未知错误"}`, true);
+    return;
+  }
+  const filepath = saveResp.payload?.filepath || "";
+  setBatchStatus(`已保存到 ${destLabel}：${filepath}`);
+  setBatchMessage(`批量保存完成：成功 ${successCount} / 失败 ${failedCount}。`);
 }

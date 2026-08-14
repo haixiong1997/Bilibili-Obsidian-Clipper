@@ -1,95 +1,62 @@
-# Bilibili Obsidian Clipper｜一键保存B站字幕
+# Bilibili Obsidian Clipper（FNS 增强版）
 
-[![GitHub all releases downloads](https://img.shields.io/github/downloads/haixiong1997/Bilibili-Obsidian-Clipper/total?style=flat-square&logo=github&label=downloads)](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper/releases)
-[![Chrome Web Store users](https://img.shields.io/chrome-web-store/users/jokophbofiphenlplmohabdcmalcbenl?style=flat-square&logo=google-chrome&logoColor=white&label=chrome)](https://chromewebstore.google.com/detail/jokophbofiphenlplmohabdcmalcbenl)
-[![GitHub release](https://img.shields.io/github/v/release/haixiong1997/Bilibili-Obsidian-Clipper?style=flat-square&label=version)](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper/releases)
+> 本仓库是 [haixiong1997/Bilibili-Obsidian-Clipper](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper) 的 fork 增强版，在原版基础上新增了 **Fast Note Sync（FNS）服务器直存** 与 **批量抓取（合集 / 多 P）** 功能。
+> 原项目版权归原作者所有（MIT License）。
 
-推荐官方插件市场下载：[Chrome](https://chromewebstore.google.com/detail/jokophbofiphenlplmohabdcmalcbenl?utm_source=item-share-cb) · [Edge](https://microsoftedge.microsoft.com/addons/detail/fbeeapnjdjgacilaobonekidbfjcmdjo) · [Firefox](https://addons.mozilla.org/addon/bilibili-obsidian-clipper/)
+在 B 站视频页抓取字幕，预览后可复制 Markdown、下载字幕文件，并一键保存到 Obsidian（Local REST API）**或直接写入 Fast Note Sync 服务器同步项目**（无需本地 Obsidian）。
 
-在 B 站视频页抓取字幕，预览后可复制 Markdown、下载字幕文件，并一键写入 Obsidian（Local REST API）。
+## 相比原版新增的功能
 
-> 注意：仅支持获取“有字幕轨”的 B 站视频字幕（播放器里有「字幕」选项，通常表示作者上传了外挂字幕或平台提供了 AI 字幕）；没有字幕轨的视频无法获取字幕。
+| 功能 | 说明 |
+| --- | --- |
+| **保存到 FNS** | 把字幕笔记直接写入 Fast Note Sync Service 服务器上的同步项目，本地不开 Obsidian 也能用 |
+| **批量抓取（合集 / 多 P）** | 自动识别合集（ugc_season）/ 多 P / 单集，一次性批量抓取选中的分集字幕，合并保存到同一篇 Markdown 笔记 |
+| **批量保存到 FNS** | 批量抓取的字幕可直接保存到 FNS 服务器 |
+| **测试 FNS 连接** | 设置页新增独立按钮，验证 FNS 地址 / Token / Vault 是否可用 |
 
-## 功能
+## 与原版的差异
 
-- B 站视频字幕抓取（自动识别当前分 P）
-- 字幕预览、复制 Markdown
-- 下载字幕文件（`srt/txt`）
-- 保存到 Obsidian（Local REST API）
+- **设置页**：新增「Fast Note Sync（服务器直存）」配置区块（服务地址 / API Token / Vault 名 / 客户端类型），以及「测试 FNS 连接」按钮
+- **视频面板 / popup**：新增「保存到 FNS」绿色按钮、「批量抓取（合集 / 多 P）」按钮
+- **批量视图**：分集列表（勾选 / 全选 / 全不选）、逐集抓取进度条、「批量保存到 Obsidian / FNS」两个按钮
 
-### 阅读视图（v1.0.18+）
+## FNS 配置
 
-沉浸式布局，支持排版调整、主题切换、字幕同步等。
+在扩展设置页填写：
 
-> 稍后再看页面的阅读视图体验尚不完善，推荐在普通视频页使用。
+| 字段 | 说明 |
+| --- | --- |
+| FNS 服务地址 | 例如 `http://你的服务器IP:9000` |
+| FNS API Token | FNS 管理后台右上角「Copy API Config」复制的 Token |
+| Vault 名 | 后台「Note Vaults」里目标库名，例如 `项目文章` |
+| 客户端类型 | 默认 `ObsidianPlugin`，须与 Token 绑定的一致；填错返回 315/314 |
 
-### AI 侧边栏（v1.1.0+）
+## 技术说明
 
-支持围绕当前视频字幕进行轻量对话，也可在普通网页中作为通用 AI 对话侧边栏使用。
+- FNS 请求在 `background.js` 的 service worker 中发起（不受 CORS 限制）。
+- FNS 对业务错误一律返回 HTTP 200，错误码在 body：`430`=笔记不存在、`315`=scope 受限、`314`=客户端受限、`414`=vault 不存在、`507`=未登录。
+- 每个请求带 `x-client` 头，值取设置里的「客户端类型」（默认 ObsidianPlugin）。
+- `fnsToken` 存 `chrome.storage.local`（敏感信息不同步），其余配置存 `chrome.storage.sync`。
+- 批量抓取的合集识别、分集字幕抓取、合并 Markdown 生成，逻辑来自 [PR #22](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper/pull/22)（作者 zwang-zwang）。
 
-内置历史对话、预设提示词、模型切换等能力，适合快速总结、整理与提炼视频内容。
+## 安装（开发模式）
 
-## 功能图片演示
+1. 下载本仓库 zip，解压后进入 `extension/` 目录
+2. Edge 打开 `edge://extensions/`（Chrome 用 `chrome://extensions/`），开启「开发人员模式」
+3. 点「加载解压缩的扩展」→ 选择 `extension/` 目录
+4. 打开扩展设置页，填写 FNS 配置后「保存设置」→「测试 FNS 连接」
 
-![Bilibili Obsidian Clipper 功能演示](docs/images/feature-demo-v2.png)
-
-![Bilibili Obsidian Clipper AI 侧边栏演示](docs/images/33.png)
-
-## 安装方式
-
-### 升级说明
-
-- Chrome / Edge：如果是从 GitHub 手动下载安装包升级，建议直接替换原扩展目录中的文件，并在扩展管理页点击“重新加载”；不要先移除旧扩展，否则本地设置、AI 历史对话和已保存的 Key 可能会丢失。
-- Firefox：当前为“临时加载附加组件”方式，更适合开发调试使用；重新移除并加载新版本后，本地设置和 AI 历史对话可能不会保留。
-
-### Chrome / Edge
-
-1. 在 GitHub 的 `Releases` 页面下载最新的 `*-chrome.zip` 包
-2. 解压到任意本地目录
-3. 打开扩展管理页：
-   - Chrome：`chrome://extensions/`
-   - Edge：`edge://extensions/`
-4. 开启"开发者模式"
-5. 点击"加载已解压的扩展程序"
-6. 选择解压后的扩展目录
-
-### Firefox
-
-1. 在 GitHub 的 `Releases` 页面下载最新的 `*-firefox.zip` 包
-2. 解压到任意本地目录
-3. 打开 Firefox 附加组件管理页：`about:addons`
-4. 点击右上角齿轮图标 → "调试附加组件"
-5. 点击"临时加载附加组件..."
-6. 选择解压后的文件夹中的 `manifest.json` 文件
-
-## 项目结构
-
-- `README.md` / `LICENSE`：项目说明与许可证
-- `extension/`：插件源码（manifest、js、css、icons）
-
-## Obsidian 配置
-
-1. 在 Obsidian 社区插件市场安装并启用 `Local REST API with MCP`
-2. 在插件设置中勾选 `Enable Non-encrypted (HTTP) Server`
-3. 复制插件页面里的 API Key
-4. 在扩展设置页填写 `Local REST API 地址`、`API Key`、`笔记目录`
-
-## 使用方式
-
-1. 打开任意 B 站视频页并点击扩展图标
-2. 面板会自动抓取并展示字幕
-3. 按需点击 `刷新 / 复制 / 下载 / 保存到 Obsidian`
-
-## 视频教程
-
-- [B 站教程](https://www.bilibili.com/video/BV15qQwB4EZ9/?spm_id_from=333.1387.homepage.video_card.click&vd_source=040bc5ea7866b419558ec2682a2ccb59)
-
-## 支持开发者
-
-如果这个项目对您有帮助，欢迎微信打赏支持我的开发工作。您的支持是我持续改进和维护这个项目的动力。
-
-<img src="docs/images/weixin.jpg" alt="微信扫码支持开发者" width="264" />
+> 注意：不要用「拖拽 zip 到扩展页」的方式安装，Edge 解压 zip 会破坏目录结构导致图标加载失败。
 
 ## 免责声明
 
-> ▎ **用户自负责任条款**：本工具仅在用户已登录 B 站、且有访问权限的前提下获取数据。所有数据通过用户自己的浏览器和 cookie 获取，不经过任何第三方服务器。本工具不存储、不分发任何 B 站内容。使用本工具产生的所有后果由用户自行承担。请遵守 B 站用户协议与相关法律法规。
+本工具仅在用户已登录 B 站、且有访问权限的前提下获取数据。所有数据通过用户自己的浏览器和 cookie 获取，不经过任何第三方服务器。本工具不存储、不分发任何 B 站内容。使用本工具产生的所有后果由用户自行承担。
+
+## 开发说明
+
+本分支的 **Fast Note Sync（FNS）直存** 与 **批量抓取适配** 部分，由 AI 编程助手 **Claude Code** 辅助编写（含 FNS API 对接、批量流程编排、UI 集成等）。
+
+## 致谢
+
+- [Bilibili-Obsidian-Clipper](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper) 原作者 haixiong1997
+- [PR #22 批量抓取功能](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper/pull/22) 作者 zwang-zwang

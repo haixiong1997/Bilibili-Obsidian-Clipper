@@ -25,6 +25,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue",
     Arial, sans-serif;
   overflow: hidden;
+  position: relative;
 }
 
 .popup {
@@ -211,6 +212,12 @@ body {
   cursor: pointer;
 }
 
+.fns-send {
+  border-color: #4cc9a7;
+  background: linear-gradient(180deg, #35b98d 0%, #2aa076 100%);
+  margin-top: 8px;
+}
+
 button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -227,4 +234,197 @@ button:disabled {
 
 .message:empty {
   display: none;
+}
+
+.batch-toggle {
+  border: 1px dashed var(--action-accent);
+  background: var(--panel-bg);
+  border-radius: 9px;
+  padding: 7px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--action-accent);
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.batch-view {
+  position: absolute;
+  inset: 0;
+  background: var(--popup-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.batch-view[hidden] {
+  display: none;
+}
+
+.batch-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.batch-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.batch-count {
+  font-size: 12px;
+  color: #666;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #4d4d4d;
+}
+
+.batch-toolbar .ghost {
+  height: 26px;
+  min-width: 48px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.batch-selected-info {
+  margin-left: auto;
+  color: #666;
+}
+
+.batch-selected-info strong {
+  color: var(--action-accent);
+}
+
+.batch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+}
+
+.batch-list:empty {
+  display: none;
+}
+
+.batch-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #eef1f6;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.batch-item:last-child {
+  border-bottom: none;
+}
+
+.batch-item:hover {
+  background: #f7f8fc;
+}
+
+.batch-item input[type="checkbox"] {
+  margin-top: 2px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.batch-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.batch-item-title {
+  font-weight: 600;
+  color: #2f2f2f;
+  word-break: break-all;
+}
+
+.batch-item-meta {
+  font-size: 11px;
+  color: #888;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.batch-item-status {
+  font-size: 11px;
+  margin-top: 2px;
+  white-space: normal;
+}
+
+.batch-item-status.is-ok {
+  color: #34a96b;
+}
+
+.batch-item-status.is-err {
+  color: #d35f5f;
+}
+
+.batch-item-status.is-pending {
+  color: #888;
+}
+
+.batch-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.batch-progress[hidden] {
+  display: none;
+}
+
+.batch-progress-bar {
+  height: 6px;
+  background: #e6e9f2;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.batch-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #9c82ff 0%, #8f75ef 100%);
+  width: 0%;
+  transition: width 0.18s ease;
+}
+
+.batch-progress-text {
+  margin: 0;
+  font-size: 11px;
+  color: #666;
+}
+
+#batchStatus.is-error {
+  color: var(--status-error-text);
+  background: var(--status-error-bg);
+  border-color: var(--status-error-border);
 }

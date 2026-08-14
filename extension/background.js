@@ -62,11 +62,15 @@ const DEFAULT_SYNC_SETTINGS = {
   notePlaceholderSections: [],
   aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
   aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
-  aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
+  aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice(),
+  fnsBaseUrl: "",
+  fnsVault: "",
+  fnsClient: "ObsidianPlugin"
 };
 
 const DEFAULT_LOCAL_SETTINGS = {
-  obsidianApiKey: ""
+  obsidianApiKey: "",
+  fnsToken: ""
 };
 const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || "";
 
@@ -1050,6 +1054,128 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "fns-note-exists") {
+    const baseUrl = String(message.baseUrl || "").trim();
+    const token = String(message.token || "").trim();
+    const vault = String(message.vault || "").trim();
+    const client = String(message.client || "ObsidianPlugin").trim();
+    const filepath = String(message.filepath || "").trim();
+
+    if (!baseUrl || !token || !vault || !filepath) {
+      sendResponse({ ok: false, error: "缺少 Fast Note Sync 参数" });
+      return false;
+    }
+
+    // FNS 对业务错误一律返回 HTTP 200，错误码在 body：
+    //   430 = 笔记不存在（HTTP 200）；code=1 = 存在
+    const qs = new URLSearchParams({ path: filepath, vault });
+    fetch(`${baseUrl.replace(/\/+$/g, "")}/api/note?${qs.toString()}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "x-client": client,
+        Accept: "application/json"
+      },
+      cache: "no-store"
+    })
+      .then(async (response) => {
+        const bodyText = await response.text().catch(() => "");
+        let data = null;
+        try { data = bodyText ? JSON.parse(bodyText) : null; } catch { data = null; }
+        const msg = String(data?.message || "");
+        if (data && (data.code === 430 || /not\s*exist|不存在|未找到|没有找到/i.test(msg))) {
+          sendResponse({ ok: true, exists: false });
+          return;
+        }
+        if (data && (data.code === 1 || data.status === true)) {
+          sendResponse({ ok: true, exists: true });
+          return;
+        }
+        sendResponse({ ok: false, error: data?.message || `HTTP ${response.status}` });
+      })
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === "write-fns-note") {
+    const baseUrl = String(message.baseUrl || "").trim();
+    const token = String(message.token || "").trim();
+    const vault = String(message.vault || "").trim();
+    const client = String(message.client || "ObsidianPlugin").trim();
+    const filepath = String(message.filepath || "").trim();
+    const content = typeof message.content === "string" ? message.content : "";
+
+    if (!baseUrl || !token || !vault || !filepath) {
+      sendResponse({ ok: false, error: "缺少 Fast Note Sync 参数" });
+      return false;
+    }
+
+    fetch(`${baseUrl.replace(/\/+$/g, "")}/api/note`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "x-client": client,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ path: filepath, vault, content })
+    })
+      .then(async (response) => {
+        const bodyText = await response.text().catch(() => "");
+        let data = null;
+        try { data = bodyText ? JSON.parse(bodyText) : null; } catch { data = null; }
+        if (data && (data.code === 1 || data.status === true)) {
+          sendResponse({ ok: true });
+          return;
+        }
+        const detail = data?.message ? ` ${data.message}` : bodyText ? ` ${bodyText.slice(0, 200)}` : "";
+        sendResponse({ ok: false, error: `FNS 写入失败：HTTP ${response.status}.${detail}` });
+      })
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === "test-fns-connection") {
+    const baseUrl = String(message.baseUrl || "").trim();
+    const token = String(message.token || "").trim();
+    const vault = String(message.vault || "").trim();
+    const client = String(message.client || "ObsidianPlugin").trim();
+
+    if (!baseUrl || !token || !vault) {
+      sendResponse({ ok: false, error: "缺少 Fast Note Sync 参数（地址 / Token / Vault）" });
+      return false;
+    }
+
+    // 探测一个必然不存在的路径：
+    //   430 = 笔记不存在 -> token 和 vault 都有效
+    //   315 = scope 受限 / 314 = 客户端受限 / 414 = vault 不存在 / 507 = 未登录
+    const probePath = "_boc_fns_probe.md";
+    const qs = new URLSearchParams({ path: probePath, vault });
+    fetch(`${baseUrl.replace(/\/+$/g, "")}/api/note?${qs.toString()}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "x-client": client,
+        Accept: "application/json"
+      },
+      cache: "no-store"
+    })
+      .then(async (response) => {
+        const bodyText = await response.text().catch(() => "");
+        let data = null;
+        try { data = bodyText ? JSON.parse(bodyText) : null; } catch { data = null; }
+        if (data && (data.code === 430 || data.code === 1 || data.status === true)) {
+          sendResponse({ ok: true, service: `Fast Note Sync Service (vault: ${vault})` });
+          return;
+        }
+        sendResponse({
+          ok: false,
+          error: `FNS 连接失败：${data?.message || `HTTP ${response.status}`}${data?.details ? `（${data.details}）` : ""}`
+        });
+      })
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message.type === "test-obsidian-connection") {
     const baseUrl = String(message.baseUrl || "").trim();
     const apiKey = String(message.apiKey || "").trim();
@@ -1318,9 +1444,19 @@ async function getMergedSettings() {
     await chrome.storage.sync.remove("obsidianApiKey");
   }
 
+  let fnsToken = normalizeApiKey(localSettings.fnsToken);
+  const legacySyncFnsToken = normalizeApiKey(syncSettings.fnsToken);
+
+  if (!fnsToken && legacySyncFnsToken) {
+    fnsToken = legacySyncFnsToken;
+    await chrome.storage.local.set({ fnsToken });
+    await chrome.storage.sync.remove("fnsToken");
+  }
+
   return {
     ...merged,
-    obsidianApiKey: apiKey
+    obsidianApiKey: apiKey,
+    fnsToken
   };
 }
 
@@ -1328,6 +1464,7 @@ async function saveSettings(settings) {
   const payload = settings && typeof settings === "object" ? settings : {};
   const syncPayload = { ...payload };
   delete syncPayload.obsidianApiKey;
+  delete syncPayload.fnsToken;
   syncPayload.downloadFormat = normalizeDownloadFormat(syncPayload.downloadFormat);
   syncPayload.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(syncPayload.includeHotCommentsInNote);
   syncPayload.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(syncPayload.enablePlayerAiQuickAction);
@@ -1350,7 +1487,8 @@ async function saveSettings(settings) {
   await Promise.all([
     chrome.storage.sync.set(syncPayload),
     chrome.storage.local.set({
-      obsidianApiKey: normalizeApiKey(payload.obsidianApiKey)
+      obsidianApiKey: normalizeApiKey(payload.obsidianApiKey),
+      fnsToken: normalizeApiKey(payload.fnsToken)
     })
   ]);
 }

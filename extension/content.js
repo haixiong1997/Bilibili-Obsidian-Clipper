@@ -2,6 +2,10 @@ const DEFAULT_SETTINGS = {
   noteFolder: "Clippings/Bilibili",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   obsidianApiKey: "",
+  fnsBaseUrl: "",
+  fnsToken: "",
+  fnsVault: "",
+  fnsClient: "ObsidianPlugin",
   tags: "clippings,bilibili",
   downloadFormat: "srt",
   includeDateInFilename: true,
@@ -33,7 +37,12 @@ const DEFAULT_SETTINGS = {
 };
 const PLAYER_AI_ICON_VARIANT = "badge";
 
-const BOC_VERSION = "1.1.3";
+const BOC_VERSION =
+  (typeof chrome !== "undefined" &&
+    chrome.runtime &&
+    chrome.runtime.getManifest &&
+    chrome.runtime.getManifest().version) ||
+  "1.2.0";
 const CACHE_KEY_PREFIX = "boc_subtitle_cache_";
 globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
@@ -324,6 +333,7 @@ const ids = {
   copyBtn: "boc-copy-btn",
   downloadBtn: "boc-download-btn",
   sendBtn: "boc-send-btn",
+  fnsSendBtn: "boc-fns-send-btn",
   refreshBtn: "boc-refresh-btn",
   closeBtn: "boc-close-btn",
   settingsBtn: "boc-settings-btn",
@@ -520,6 +530,206 @@ function bindRuntimeEvents() {
       return true;
     }
 
+    if (message.type === "popup-send-fns") {
+      sendToFns()
+        .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
+        .catch((error) =>
+          sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
+        );
+      return true;
+    }
+
+    if (message.type === "popup-get-batch-list") {
+      getBatchList()
+        .then((list) => {
+          // 初始化批量会话，但未激活，等待 popup-batch-start
+          const batch = getBatchState();
+          batch.list = list;
+          batch.items = [];
+          batch.results = [];
+          batch.active = false;
+          sendResponse({
+            ok: true,
+            payload: {
+              type: list.type,
+              title: list.title,
+              mainBvid: list.mainBvid,
+              author: list.author,
+              uploadDate: list.uploadDate,
+              pageCount: list.pageCount,
+              total: (list.items || []).length,
+              items: (list.items || []).map((item) => ({
+                id: item.id,
+                type: item.type,
+                pageIndex: item.pageIndex,
+                pageTitle: item.pageTitle,
+                section: item.section,
+                duration: item.duration,
+                url: item.url,
+                bvid: item.bvid,
+                cid: item.cid
+              }))
+            }
+          });
+        })
+        .catch((error) =>
+          sendResponse({ ok: false, error: getErrorMessage(error) })
+        );
+      return true;
+    }
+
+    if (message.type === "popup-batch-start") {
+      (async () => {
+        try {
+          const batch = getBatchState();
+          let list = batch.list;
+          if (!list) {
+            // 列表可能因 content script 重载等因素丢失，自动重新获取
+            const bvid = extractBvid(location.href);
+            if (!bvid) {
+              sendResponse({ ok: false, error: "当前页面不是标准 BV 视频地址，无法获取列表。" });
+              return;
+            }
+            list = await getBatchList();
+            batch.list = list;
+          }
+          const selectedIds = Array.isArray(message.selectedIds) ? message.selectedIds : [];
+          const selectedSet = new Set(selectedIds.map((id) => String(id || "")));
+          const selectedItems = (list.items || []).filter((item) => selectedSet.has(String(item.id)));
+          if (selectedItems.length === 0) {
+            sendResponse({ ok: false, error: "未选中任何分集。" });
+            return;
+          }
+          startBatchSession(list, selectedItems);
+          sendResponse({
+            ok: true,
+            payload: {
+              total: batch.items.length,
+              items: batch.items.map((item) => ({
+                id: item.id,
+                pageTitle: item.pageTitle,
+                section: item.section,
+                pageIndex: item.pageIndex,
+                url: item.url
+              }))
+            }
+          });
+        } catch (error) {
+          sendResponse({ ok: false, error: getErrorMessage(error) });
+        }
+      })();
+      return true;
+    }
+
+    if (message.type === "popup-batch-fetch-item") {
+      const batch = getBatchState();
+      if (!batch.active) {
+        sendResponse({ ok: false, error: "批量会话未开始。" });
+        return false;
+      }
+      const index = Number(message.index);
+      if (!Number.isInteger(index) || index < 0 || index >= batch.items.length) {
+        sendResponse({ ok: false, error: "批量项索引无效。" });
+        return false;
+      }
+      const item = batch.items[index];
+      fetchBatchItemSubtitle(item)
+        .then((result) => {
+          batch.results[index] = result;
+          sendResponse({
+            ok: true,
+            payload: {
+              index,
+              total: batch.items.length,
+              hasSubtitle: Boolean(result.subtitleBody && result.subtitleBody.length > 0),
+              error: result.error,
+              subtitleLang: result.subtitleLang,
+              pageTitle: result.item?.pageTitle || "",
+              section: result.item?.section || "",
+              pageIndex: result.item?.pageIndex || 1
+            }
+          });
+        })
+        .catch((error) => {
+          const result = {
+            item,
+            subtitleBody: [],
+            chapters: [],
+            subtitleLang: "",
+            selectedSubtitleId: "",
+            selectedSubtitleUrl: "",
+            error: getErrorMessage(error)
+          };
+          batch.results[index] = result;
+          sendResponse({
+            ok: false,
+            error: getErrorMessage(error),
+            payload: {
+              index,
+              total: batch.items.length,
+              hasSubtitle: false,
+              error: result.error,
+              pageTitle: item?.pageTitle || "",
+              section: item?.section || "",
+              pageIndex: item?.pageIndex || 1
+            }
+          });
+        });
+      return true;
+    }
+
+    if (message.type === "popup-batch-save") {
+      const batch = getBatchState();
+      if (!batch.active || !batch.list) {
+        sendResponse({ ok: false, error: "批量会话未开始。" });
+        return false;
+      }
+      const itemResults = (batch.results || []).filter(Boolean);
+      if (itemResults.length === 0) {
+        sendResponse({ ok: false, error: "尚未抓取任何分集字幕。" });
+        return false;
+      }
+      Promise.resolve()
+        .then(async () => {
+          const settings = await getSettings();
+          const result = await batchSaveToObsidian(batch.list, itemResults, settings);
+          sendResponse({ ok: true, payload: { filepath: result.filepath } });
+        })
+        .catch((error) =>
+          sendResponse({ ok: false, error: getErrorMessage(error) })
+        );
+      return true;
+    }
+
+    if (message.type === "popup-batch-save-fns") {
+      const batch = getBatchState();
+      if (!batch.active || !batch.list) {
+        sendResponse({ ok: false, error: "批量会话未开始。" });
+        return false;
+      }
+      const itemResults = (batch.results || []).filter(Boolean);
+      if (itemResults.length === 0) {
+        sendResponse({ ok: false, error: "尚未抓取任何分集字幕。" });
+        return false;
+      }
+      Promise.resolve()
+        .then(async () => {
+          const settings = await getSettings();
+          const result = await batchSaveToFns(batch.list, itemResults, settings);
+          sendResponse({ ok: true, payload: { filepath: result.filepath } });
+        })
+        .catch((error) =>
+          sendResponse({ ok: false, error: getErrorMessage(error) })
+        );
+      return true;
+    }
+
+    if (message.type === "popup-batch-cancel") {
+      resetBatchState();
+      sendResponse({ ok: true });
+      return false;
+    }
+
     if (message.type === "popup-trigger-reading-view") {
       state.playerAiQuickActionSuppressedUntil = Date.now() + 2500;
       removePlayerAiQuickActionButton();
@@ -693,6 +903,7 @@ function buildUiHtml() {
         <button id="${ids.copyBtn}" type="button">复制完整 Markdown</button>
         <button id="${ids.downloadBtn}" type="button">下载字幕</button>
         <button id="${ids.sendBtn}" type="button">发送到 Obsidian</button>
+        <button id="${ids.fnsSendBtn}" type="button">保存到 FNS</button>
       </div>
       <p id="${ids.message}" class="boc-message"></p>
     </aside>
@@ -829,6 +1040,8 @@ function bindUiEvents() {
   copyBtn.addEventListener("click", copyMarkdown);
   downloadBtn.addEventListener("click", downloadSubtitle);
   sendBtn.addEventListener("click", sendToObsidian);
+  const fnsSendBtn = byId(ids.fnsSendBtn);
+  fnsSendBtn.addEventListener("click", sendToFns);
   settingsBtn.addEventListener("click", requestOpenOptions);
   readingCloseBtn.addEventListener("click", () => {
     if (isReaderMode()) {
@@ -1624,6 +1837,425 @@ async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content) {
   if (!resp?.ok) {
     throw new Error(toReadableText(resp?.error, "Local API 写入失败"));
   }
+}
+
+async function sendToFns() {
+  state.settings = await getSettings();
+  await refreshDerivedContent();
+  if (!state.markdown) {
+    setMessage("没有可发送内容，请先刷新抓取。");
+    return;
+  }
+
+  const filename = buildNoteFilename(state);
+  const folder = resolveFolderTemplate(state.settings.noteFolder || "", state);
+  const filepath = folder ? `${folder}/${filename}` : filename;
+  const fnsBaseUrl = String(state.settings.fnsBaseUrl || "").trim();
+  const fnsToken = String(state.settings.fnsToken || "").trim();
+  const fnsVault = String(state.settings.fnsVault || "").trim();
+  const fnsClient = String(state.settings.fnsClient || "ObsidianPlugin").trim();
+  if (!fnsBaseUrl || !fnsToken || !fnsVault) {
+    setMessage("请先在设置中填写 Fast Note Sync 地址、Token 和 Vault。");
+    requestOpenOptions();
+    return;
+  }
+
+  try {
+    const exists = await checkFnsNoteExists(fnsBaseUrl, fnsToken, fnsVault, fnsClient, filepath);
+    if (exists) {
+      const shouldOverwrite = await confirmOverwriteNote(filepath);
+      if (!shouldOverwrite) {
+        setMessage("已取消保存，原笔记未被覆盖。");
+        return;
+      }
+    }
+    await writeNoteByFns(fnsBaseUrl, fnsToken, fnsVault, fnsClient, filepath, state.markdown);
+    setMessage(`已保存到 FNS：${filepath}`);
+  } catch (error) {
+    if (isExtensionContextInvalidated(error)) {
+      setMessage("扩展刚刚更新，请刷新当前页面后重试。");
+      return;
+    }
+    setMessage(`保存失败：${getErrorMessage(error)}`);
+  }
+}
+
+async function checkFnsNoteExists(baseUrl, token, vault, client, filepath) {
+  const resp = await sendRuntimeMessage({
+    type: "fns-note-exists",
+    baseUrl,
+    token,
+    vault,
+    client,
+    filepath
+  });
+  if (!resp?.ok) {
+    throw new Error(toReadableText(resp?.error, "FNS 检查失败"));
+  }
+  return Boolean(resp.exists);
+}
+
+async function writeNoteByFns(baseUrl, token, vault, client, filepath, content) {
+  const resp = await sendRuntimeMessage({
+    type: "write-fns-note",
+    baseUrl,
+    token,
+    vault,
+    client,
+    filepath,
+    content
+  });
+  if (!resp?.ok) {
+    throw new Error(toReadableText(resp?.error, "FNS 写入失败"));
+  }
+}
+
+// ===== 批量抓取（合集 / 多 P）=====
+// 批量会话状态保存在 state.batch，避免单条消息体积过大。
+function getBatchState() {
+  if (!state.batch) {
+    state.batch = {
+      list: null,
+      items: [],
+      results: [],
+      active: false
+    };
+  }
+  return state.batch;
+}
+
+function resetBatchState() {
+  state.batch = {
+    list: null,
+    items: [],
+    results: [],
+    active: false
+  };
+}
+
+async function getBatchList() {
+  const bvid = extractBvid(location.href);
+  if (!bvid) {
+    throw new Error("当前页面不是标准 BV 视频地址，无法获取批量列表。");
+  }
+  const meta = await retryAsync(() => fetchVideoMeta(bvid), 2, 250);
+  const items = [];
+  let batchType = "single";
+  let batchTitle = meta.title || bvid;
+
+  // 合集优先（ugc_season）
+  if (meta.ugcSeason && meta.ugcSeason.sections.length > 0) {
+    batchType = "ugc_season";
+    batchTitle = meta.ugcSeason.title || meta.title || bvid;
+    meta.ugcSeason.sections.forEach((section) => {
+      (section.episodes || []).forEach((ep) => {
+        if (!ep.cid || !ep.bvid) {
+          return;
+        }
+        items.push({
+          id: `ugc-${ep.bvid}-${ep.cid}`,
+          bvid: ep.bvid,
+          cid: ep.cid,
+          aid: ep.aid || meta.aid || "",
+          pageIndex: Number(ep.pageIndex) > 0 ? Number(ep.pageIndex) : 1,
+          pageTitle: ep.pageTitle || "",
+          section: section.title || "",
+          duration: Number(ep.duration || 0) || 0,
+          url: ep.url || `https://www.bilibili.com/video/${ep.bvid}/`,
+          type: "ugc_season"
+        });
+      });
+    });
+  } else if (meta.pages && meta.pages.length > 1) {
+    batchType = "multi_p";
+    batchTitle = meta.title || bvid;
+    meta.pages.forEach((page) => {
+      if (!page.cid) {
+        return;
+      }
+      items.push({
+        id: `p-${bvid}-${page.page}`,
+        bvid,
+        cid: page.cid,
+        aid: meta.aid || "",
+        pageIndex: Number(page.page) > 0 ? Number(page.page) : 1,
+        pageTitle: page.part || "",
+        section: "",
+        duration: Number(page.duration || 0) || 0,
+        url: `https://www.bilibili.com/video/${bvid}/?p=${Number(page.page) > 0 ? Number(page.page) : 1}`,
+        type: "multi_p"
+      });
+    });
+  } else {
+    // 单集也允许“批量”流程，便于复用同一套 UI。
+    items.push({
+      id: `single-${bvid}`,
+      bvid,
+      cid: meta.defaultCid || "",
+      aid: meta.aid || "",
+      pageIndex: 1,
+      pageTitle: meta.title || "",
+      section: "",
+      duration: Number(meta.defaultDuration || 0) || 0,
+      url: `https://www.bilibili.com/video/${bvid}/`,
+      type: "single"
+    });
+  }
+
+  return {
+    type: batchType,
+    title: batchTitle,
+    mainBvid: bvid,
+    mainAid: meta.aid || "",
+    mainCid: meta.defaultCid || "",
+    author: meta.author || "",
+    uploadDate: meta.uploadDate || "",
+    description: meta.description || "",
+    pageCount: Array.isArray(meta.pages) ? meta.pages.length : 0,
+    items
+  };
+}
+
+function startBatchSession(list, selectedItems) {
+  const batch = getBatchState();
+  batch.list = list;
+  batch.items = (selectedItems || []).map((item) => ({ ...item }));
+  batch.results = [];
+  batch.active = true;
+  return batch;
+}
+
+async function fetchBatchItemSubtitle(item) {
+  if (!item || !item.bvid || !item.cid) {
+    throw new Error("批量项缺少 bvid 或 cid。");
+  }
+  const bundle = await retryAsync(
+    () => fetchSubtitleBundle(item.bvid, item.cid, item.aid || ""),
+    2,
+    400
+  );
+  const tracks = normalizeSubtitleTracks(bundle.tracks || []);
+  if (tracks.length === 0) {
+    return {
+      item,
+      subtitleBody: [],
+      chapters: bundle.chapters || [],
+      subtitleLang: "",
+      selectedSubtitleId: "",
+      selectedSubtitleUrl: "",
+      error: "no-subtitle"
+    };
+  }
+  const preferred =
+    pickPreferredSubtitle(tracks, {}) || tracks[0];
+  const subtitle = await fetchSubtitleBody(preferred.subtitleUrl);
+  const body = Array.isArray(subtitle?.body) ? subtitle.body : [];
+  return {
+    item,
+    subtitleBody: body,
+    chapters: bundle.chapters || [],
+    subtitleLang: preferred.lanDoc || preferred.lan || "",
+    selectedSubtitleId: String(preferred.id || ""),
+    selectedSubtitleUrl: String(preferred.subtitleUrl || ""),
+    error: null
+  };
+}
+
+function buildBatchMarkdown(batchList, itemResults, settings) {
+  const created = formatLocalDate();
+  const tags = (settings.tags || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const tagsCsv = tags.join(", ");
+  const tagsYaml =
+    tags.length === 0 ? "[]" : `[${tags.map((tag) => `"${tag.replace(/"/g, '\\"')}"`).join(", ")}]`;
+
+  const mainBvid = String(batchList.mainBvid || "").trim();
+  const mainUrl = mainBvid ? `https://www.bilibili.com/video/${mainBvid}/` : "";
+  const author = String(batchList.author || state.author || "unknown").trim();
+  const uploadDate = String(batchList.uploadDate || state.uploadDate || "unknown").trim();
+  const collectionTypeLabel =
+    batchList.type === "ugc_season" ? "ugc_season" : batchList.type === "multi_p" ? "multi_p" : "single";
+
+  const frontMatterLines = [
+    `title: "${escapeYaml(batchList.title || state.title || mainBvid)}"`,
+    `url: "${escapeYaml(mainUrl)}"`,
+    `bvid: "${escapeYaml(mainBvid)}"`,
+    `cid: "${escapeYaml(String(batchList.mainCid || state.cid || ""))}"`,
+    `author: "${escapeYaml(author)}"`,
+    `upload_date: "${escapeYaml(uploadDate)}"`,
+    `created: "${created}"`,
+    `tags: ${tagsYaml}`,
+    `collection_type: "${collectionTypeLabel}"`,
+    `collection_count: ${itemResults.length}`
+  ];
+
+  const lines = ["---", ...frontMatterLines, "---", ""];
+
+  // 主视频嵌入
+  const mainPage = extractPageIndex(location.href);
+  const embedIframe = buildBilibiliEmbedIframe(
+    {
+      aid: batchList.mainAid || state.aid || "",
+      bvid: mainBvid,
+      cid: batchList.mainCid || state.cid || ""
+    },
+    mainPage
+  );
+  lines.push(embedIframe, "");
+
+  // 简介
+  const intro = String(batchList.description || state.description || "").trim();
+  if (intro) {
+    lines.push("## 简介", "", intro, "");
+  }
+
+  // 分集目录
+  lines.push("## 分集目录", "");
+  itemResults.forEach((result, idx) => {
+    const item = result?.item || {};
+    const num = idx + 1;
+    const label = buildBatchItemLabel(item);
+    const safeUrl = String(item.url || "").trim() || "#";
+    lines.push(`${num}. [${escapeMarkdownLinkText(label)}](${safeUrl})`);
+  });
+  lines.push("");
+
+  // 各分集字幕
+  itemResults.forEach((result, idx) => {
+    const item = result?.item || {};
+    const num = idx + 1;
+    const label = buildBatchItemLabel(item);
+    lines.push(`## ${num}. ${escapeMarkdownHeadingText(label)}`, "");
+    lines.push(`- URL：${String(item.url || "").trim()}`);
+    if (item.duration > 0) {
+      lines.push(`- 时长：${formatCompactTimestamp(item.duration, item.duration >= 3600)}`);
+    }
+    if (result.subtitleLang) {
+      lines.push(`- 字幕语言：${result.subtitleLang}`);
+    }
+    lines.push("");
+
+    if (result.error === "no-subtitle" || !result.subtitleBody || result.subtitleBody.length === 0) {
+      lines.push("> 该分集暂无可用字幕。", "");
+      return;
+    }
+
+    const withHours = shouldShowHoursInNote(
+      { videoDuration: Number(item.duration || 0) || 0, chapters: result.chapters || [] },
+      result.subtitleBody
+    );
+
+    const chapterLines = buildChapterLines(result.chapters || [], withHours);
+    if (chapterLines.length > 0) {
+      lines.push("### 章节", "", ...chapterLines, "");
+    }
+
+    const subtitleLines = buildSubtitleSectionLines(
+      result.subtitleBody,
+      result.chapters || [],
+      settings,
+      withHours
+    );
+    lines.push("### 字幕", "", ...subtitleLines, "");
+  });
+
+  return lines.join("\n");
+}
+
+function buildBatchItemLabel(item) {
+  const safe = item || {};
+  const section = String(safe.section || "").trim();
+  const pageTitle = String(safe.pageTitle || "").trim();
+  const prefix =
+    safe.type === "multi_p"
+      ? `P${Number(safe.pageIndex) > 0 ? Number(safe.pageIndex) : 1}`
+      : safe.type === "ugc_season"
+      ? `EP`
+      : "";
+  const parts = [];
+  if (prefix) {
+    parts.push(prefix);
+  }
+  if (section && section !== pageTitle) {
+    parts.push(section);
+  }
+  if (pageTitle) {
+    parts.push(pageTitle);
+  }
+  if (parts.length === 0) {
+    return safe.bvid || "未知分集";
+  }
+  if (prefix && parts.length > 1) {
+    // 把前缀和后面的标题用 " " 拼接
+    return `${parts[0]} ${parts.slice(1).join(" - ")}`;
+  }
+  return parts.join(" - ");
+}
+
+function escapeMarkdownLinkText(text) {
+  return String(text || "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("[", "\\[")
+    .replaceAll("]", "\\]")
+    .replaceAll(")", "\\)");
+}
+
+function escapeMarkdownHeadingText(text) {
+  return String(text || "")
+    .replaceAll("\n", " ")
+    .replaceAll("\r", " ")
+    .replaceAll("#", "\\#")
+    .trim();
+}
+
+function buildBatchNoteFilename(batchList, settings) {
+  const includeDate = settings?.includeDateInFilename !== false;
+  const baseParts = [];
+  if (includeDate) {
+    baseParts.push(formatLocalDate());
+  }
+  baseParts.push(batchList.title || batchList.mainBvid || "bilibili-subtitle");
+  baseParts.push("合集");
+  const baseName = sanitizeFileName(baseParts.filter(Boolean).join("-"));
+  return `${baseName || "bilibili-subtitle"}.md`;
+}
+
+async function batchSaveToObsidian(batchList, itemResults, settings) {
+  if (!itemResults || itemResults.length === 0) {
+    throw new Error("没有可保存的字幕结果。");
+  }
+  const markdown = buildBatchMarkdown(batchList, itemResults, settings);
+  const filename = buildBatchNoteFilename(batchList, settings);
+  const folder = normalizeFolder(settings.noteFolder || "");
+  const filepath = folder ? `${folder}/${filename}` : filename;
+  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
+  const apiKey = String(settings.obsidianApiKey || "").trim();
+  if (!baseUrl || !apiKey) {
+    throw new Error("请先在设置中填写 Obsidian Local REST API 地址和 API Key。");
+  }
+  await writeNoteByLocalApi(baseUrl, apiKey, filepath, markdown);
+  return { filepath, markdown };
+}
+
+async function batchSaveToFns(batchList, itemResults, settings) {
+  if (!itemResults || itemResults.length === 0) {
+    throw new Error("没有可保存的字幕结果。");
+  }
+  const markdown = buildBatchMarkdown(batchList, itemResults, settings);
+  const filename = buildBatchNoteFilename(batchList, settings);
+  const folder = normalizeFolder(settings.noteFolder || "");
+  const filepath = folder ? `${folder}/${filename}` : filename;
+  const baseUrl = String(settings.fnsBaseUrl || "").trim();
+  const token = String(settings.fnsToken || "").trim();
+  const vault = String(settings.fnsVault || "").trim();
+  const client = String(settings.fnsClient || "ObsidianPlugin").trim();
+  if (!baseUrl || !token || !vault) {
+    throw new Error("请先在设置中填写 Fast Note Sync 地址、Token 和 Vault。");
+  }
+  await writeNoteByFns(baseUrl, token, vault, client, filepath, markdown);
+  return { filepath, markdown };
 }
 
 function confirmOverwriteNote(filepath) {
@@ -4553,6 +5185,7 @@ async function fetchVideoMeta(bvid) {
   const pubdate = Number(data.pubdate || 0);
   const uploadDate = pubdate > 0 ? formatLocalDate(pubdate * 1000) : "";
   const pages = Array.isArray(data.pages) ? data.pages : [];
+  const ugcSeason = normalizeUgcSeason(data.ugc_season, bvid, pages);
 
   return {
     aid: data.aid ? String(data.aid) : "",
@@ -4567,6 +5200,53 @@ async function fetchVideoMeta(bvid) {
       page: Number(item.page || 0) || 0,
       part: String(item.part || "").trim(),
       duration: Number(item.duration || 0) || 0
+    })),
+    ugcSeason
+  };
+}
+
+function normalizeUgcSeason(raw, mainBvid, pages) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const sections = Array.isArray(raw.sections) ? raw.sections : [];
+  if (sections.length === 0) {
+    return null;
+  }
+  const safePages = Array.isArray(pages) ? pages : [];
+  return {
+    id: String(raw.id || ""),
+    title: String(raw.title || "").trim(),
+    cover: String(raw.cover || ""),
+    sections: sections.map((section) => ({
+      id: String(section.id || ""),
+      title: String(section.title || "").trim(),
+      episodes: (Array.isArray(section.episodes) ? section.episodes : []).map((ep) => {
+        const epBvid = String(ep.bvid || ep.arc?.bvid || mainBvid || "").trim();
+        const epCid = String(ep.cid || ep.page?.cid || "").trim();
+        const epAid = String(ep.aid || ep.arc?.aid || "").trim();
+        const pageTitle = String(ep.title || ep.page?.part || "").trim();
+        const duration = Number(ep.page?.duration || ep.arc?.duration || 0) || 0;
+        let pageIndex = 1;
+        let url = `https://www.bilibili.com/video/${epBvid}/`;
+        if (epBvid && epBvid === mainBvid && epCid) {
+          const matchedPage = safePages.find((p) => String(p.cid || "") === epCid);
+          if (matchedPage) {
+            pageIndex = Number(matchedPage.page) || 1;
+            url = `https://www.bilibili.com/video/${epBvid}/?p=${pageIndex}`;
+          }
+        }
+        return {
+          bvid: epBvid,
+          cid: epCid,
+          aid: epAid,
+          pageTitle,
+          pageIndex,
+          duration,
+          url,
+          cover: String(ep.cover || ep.arc?.pic || "")
+        };
+      })
     }))
   };
 }

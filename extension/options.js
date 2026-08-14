@@ -31,6 +31,10 @@ const DEFAULT_SETTINGS = {
   noteFolder: "Clippings/Bilibili",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   obsidianApiKey: "",
+  fnsBaseUrl: "",
+  fnsToken: "",
+  fnsVault: "",
+  fnsClient: "ObsidianPlugin",
   tags: "clippings,bilibili",
   downloadFormat: "srt",
   includeDateInFilename: true,
@@ -80,6 +84,10 @@ const elements = {
   noteFolder: document.getElementById("noteFolder"),
   obsidianApiBaseUrl: document.getElementById("obsidianApiBaseUrl"),
   obsidianApiKey: document.getElementById("obsidianApiKey"),
+  fnsBaseUrl: document.getElementById("fnsBaseUrl"),
+  fnsToken: document.getElementById("fnsToken"),
+  fnsVault: document.getElementById("fnsVault"),
+  fnsClient: document.getElementById("fnsClient"),
   tags: document.getElementById("tags"),
   downloadFormat: document.getElementById("downloadFormat"),
   includeDateInFilename: document.getElementById("includeDateInFilename"),
@@ -102,6 +110,7 @@ const elements = {
   aiInitialQuickPrompts: document.querySelectorAll(".ai-initial-quick-prompt"),
   saveBtn: document.getElementById("saveBtn"),
   testConnectionBtn: document.getElementById("testConnectionBtn"),
+  testFnsConnectionBtn: document.getElementById("testFnsConnectionBtn"),
   status: document.getElementById("status")
 };
 
@@ -113,6 +122,7 @@ function init() {
   loadSettings();
   elements.saveBtn.addEventListener("click", saveSettings);
   elements.testConnectionBtn.addEventListener("click", testConnection);
+  elements.testFnsConnectionBtn.addEventListener("click", testFnsConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
   elements.addAiProviderBtn.addEventListener("click", () => addAiProviderRow());
@@ -131,6 +141,10 @@ async function loadSettings() {
   elements.noteFolder.value = settings.noteFolder || "";
   elements.obsidianApiBaseUrl.value = settings.obsidianApiBaseUrl || "";
   elements.obsidianApiKey.value = settings.obsidianApiKey || "";
+  elements.fnsBaseUrl.value = settings.fnsBaseUrl || "";
+  elements.fnsToken.value = settings.fnsToken || "";
+  elements.fnsVault.value = settings.fnsVault || "";
+  elements.fnsClient.value = settings.fnsClient || "ObsidianPlugin";
   elements.tags.value = settings.tags || "";
   elements.downloadFormat.value = normalizeDownloadFormat(settings.downloadFormat);
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
@@ -230,10 +244,17 @@ function collectFormPayload() {
   elements.obsidianApiBaseUrl.value = normalizedBaseUrl;
   elements.obsidianApiKey.value = normalizedApiKey;
 
+  const normalizedFnsBaseUrl = normalizeBaseUrl(elements.fnsBaseUrl.value);
+  elements.fnsBaseUrl.value = normalizedFnsBaseUrl;
+
   return {
     noteFolder: elements.noteFolder.value.trim(),
     obsidianApiBaseUrl: normalizedBaseUrl,
     obsidianApiKey: normalizedApiKey,
+    fnsBaseUrl: normalizedFnsBaseUrl,
+    fnsToken: normalizeApiKey(elements.fnsToken.value),
+    fnsVault: elements.fnsVault.value.trim(),
+    fnsClient: (elements.fnsClient.value.trim() || "ObsidianPlugin"),
     tags: elements.tags.value.trim(),
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
     includeDateInFilename: elements.includeDateInFilename.checked,
@@ -321,6 +342,25 @@ function validateSettings(payload, { requireApiKey }) {
   const noteSectionValidation = validateNotePlaceholderSections(collectNoteSectionRows({ includeRow: true }));
   if (!noteSectionValidation.ok) {
     return noteSectionValidation;
+  }
+
+  if (payload.fnsBaseUrl) {
+    let fnsParsedUrl;
+    try {
+      fnsParsedUrl = new URL(payload.fnsBaseUrl);
+    } catch {
+      return { ok: false, field: elements.fnsBaseUrl, message: "FNS 服务地址格式不正确" };
+    }
+    const fnsProtocol = fnsParsedUrl.protocol.toLowerCase();
+    if (fnsProtocol !== "http:" && fnsProtocol !== "https:") {
+      return { ok: false, field: elements.fnsBaseUrl, message: "FNS 服务地址仅支持 http 或 https" };
+    }
+    if (!payload.fnsToken) {
+      return { ok: false, field: elements.fnsToken, message: "请填写 FNS API Token" };
+    }
+    if (!payload.fnsVault) {
+      return { ok: false, field: elements.fnsVault, message: "请填写 FNS Vault 名" };
+    }
   }
 
   return { ok: true };
@@ -892,6 +932,44 @@ async function testConnection() {
     setStatus(`连接成功 ${service}`);
   } catch (error) {
     setStatus(`连接失败：${error.message || "未知错误"}`, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function testFnsConnection() {
+  clearInputErrors();
+  const payload = collectFormPayload();
+  const validation = validateSettings(payload, { requireApiKey: false });
+  if (!validation.ok) {
+    applyValidationError(validation);
+    return;
+  }
+  if (!payload.fnsBaseUrl || !payload.fnsToken || !payload.fnsVault) {
+    setStatus("测试 FNS 连接前请先填写 FNS 服务地址、Token 和 Vault。", true);
+    return;
+  }
+
+  setBusy(true);
+  setStatus("正在测试 FNS 连接...");
+  try {
+    const resp = await sendRuntimeMessage({
+      type: "test-fns-connection",
+      baseUrl: payload.fnsBaseUrl,
+      token: payload.fnsToken,
+      vault: payload.fnsVault,
+      client: payload.fnsClient
+    });
+
+    if (!resp?.ok) {
+      setStatus(`FNS 连接失败：${resp?.error || "未知错误"}`, true);
+      return;
+    }
+
+    const service = resp?.service ? `（${resp.service}）` : "";
+    setStatus(`FNS 连接成功 ${service}`);
+  } catch (error) {
+    setStatus(`FNS 连接失败：${error.message || "未知错误"}`, true);
   } finally {
     setBusy(false);
   }

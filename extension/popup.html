@@ -46,8 +46,37 @@
         <button id="readingViewBtn" type="button">阅读</button>
       </div>
       <button id="sendBtn" type="button" class="send">保存到 Obsidian</button>
+      <button id="fnsSendBtn" type="button" class="send fns-send">保存到 FNS</button>
+      <button id="batchBtn" type="button" class="batch-toggle">批量抓取（合集 / 多 P）</button>
       <p id="message" class="message"></p>
     </main>
+
+    <section id="batchView" class="batch-view" hidden>
+      <header class="batch-header">
+        <button id="batchBackBtn" type="button" class="ghost">返回</button>
+        <strong id="batchTitle" class="batch-title">批量抓取</strong>
+        <span id="batchCount" class="batch-count">0</span>
+      </header>
+
+      <div class="batch-toolbar">
+        <button id="batchSelectAllBtn" type="button" class="ghost">全选</button>
+        <button id="batchSelectNoneBtn" type="button" class="ghost">全不选</button>
+        <span class="batch-selected-info">已选 <strong id="batchSelectedCount">0</strong> / <span id="batchTotalCount">0</span></span>
+      </div>
+
+      <p id="batchStatus" class="status">正在获取分集列表...</p>
+
+      <ul id="batchList" class="batch-list"></ul>
+
+      <div class="batch-progress" id="batchProgress" hidden>
+        <div class="batch-progress-bar"><div id="batchProgressBar" class="batch-progress-fill"></div></div>
+        <p id="batchProgressText" class="batch-progress-text"></p>
+      </div>
+
+      <button id="batchSendBtn" type="button" class="send" disabled>批量保存到 Obsidian</button>
+      <button id="batchFnsSendBtn" type="button" class="send fns-send" disabled>批量保存到 FNS</button>
+      <p id="batchMessage" class="message"></p>
+    </section>
 
     <script src="./popup.js"></script>
   </body>

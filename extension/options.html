@@ -52,6 +52,25 @@
       <input id="obsidianApiKey" type="password" placeholder="填入 Obsidian Local REST API 的 Key" />
       <p class="hint inline-hint">填写完成后建议先点击下方“测试连接”。</p>
 
+      <section class="field-group fns-settings-group">
+        <h2>Fast Note Sync（服务器直存）</h2>
+        <p class="hint">
+          可选配置。填写后可用视频面板上的“保存到 FNS”按钮，把字幕笔记直接写入 FNS 服务器上的同步项目（无需本地 Obsidian）。
+          在 FNS 管理后台右上角「Copy API Config」复制 API Token。
+        </p>
+        <label for="fnsBaseUrl">FNS 服务地址</label>
+        <input id="fnsBaseUrl" type="text" placeholder="例如：http://你的服务器IP:9000" />
+        <label for="fnsToken">FNS API Token</label>
+        <input id="fnsToken" type="password" placeholder="粘贴 FNS 后台复制的 Token" />
+        <label for="fnsVault">Vault 名</label>
+        <input id="fnsVault" type="text" placeholder="例如：项目文章" />
+        <label for="fnsClient">客户端类型</label>
+        <input id="fnsClient" type="text" placeholder="默认 ObsidianPlugin" value="ObsidianPlugin" />
+        <p class="hint inline-hint">
+          客户端类型须与 Token 绑定的一致（通常为 ObsidianPlugin）。填错会返回 315/314，可先用下方“测试 FNS 连接”验证。
+        </p>
+      </section>
+
       <label for="tags">默认标签（逗号分隔）</label>
       <input id="tags" type="text" placeholder="例如：clippings,bilibili,subtitle" />
 
@@ -159,6 +178,7 @@
       <div class="action-row">
         <button id="saveBtn" type="button">保存设置</button>
         <button id="testConnectionBtn" class="secondary-btn" type="button">测试连接</button>
+        <button id="testFnsConnectionBtn" class="secondary-btn" type="button">测试 FNS 连接</button>
       </div>
       <p id="status" class="status"></p>
 

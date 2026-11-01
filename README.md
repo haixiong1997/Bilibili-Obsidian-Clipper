@@ -13,9 +13,36 @@
 ## 功能
 
 - B 站视频字幕抓取（自动识别当前分 P）
+- **合集 / 多 P 字幕批量下载（v1.2.0+，见下文）**
 - 字幕预览、复制 Markdown
 - 下载字幕文件（`srt/txt`）
 - 保存到 Obsidian（Local REST API）
+
+## 合集 / 多 P 字幕批量下载（v1.2.0+）
+
+新增独立的批量下载管理页，可一次性抓取整个合集、收藏夹或多 P 视频的字幕。
+
+### 支持的输入
+
+- 单视频 / 多 P 链接：`https://www.bilibili.com/video/BVxxxx/?p=2`
+- UP 主合集：`https://space.bilibili.com/<mid>/channel/collectiondetail?sid=<合集id>`
+- 番剧 / 课程：`ep` 链接或 `ss` 链接
+- 收藏夹：`https://space.bilibili.com/<mid>/favlist?fid=<收藏夹id>`
+- 支持一次粘贴多行，每行一个链接
+
+### 使用步骤
+
+1. 在任意 B 站视频页点击扩展图标，选择「批量下载合集字幕」（或直接打开扩展的 `batch.html` 页面）
+2. 粘贴链接并点击「解析列表」，勾选需要下载的视频
+3. 可选：导出格式（SRT / TXT / Markdown）、字幕语言、文件名规则、并发数与请求间隔
+4. 点击「开始抓取字幕」，等待进度完成（无字幕 / 失败的条目可单独重试）
+5. 点击「下载 ZIP」导出打包文件（附带 `00-索引.md` 索引），或「写入 Obsidian」批量落盘
+
+### 说明
+
+- 抓取完全复用当前浏览器的 B 站登录态，不经过任何第三方服务器；AI 字幕需要登录后才能获取
+- 并发数 / 请求间隔可在页面里调整，遇到风控（-352 / -412）时请调低并发、拉长间隔后重试失败项
+- 「写入 Obsidian」复用设置页中的 Local REST API 配置，默认跳过已存在的笔记
 
 ### 阅读视图（v1.0.18+）
 
@@ -44,7 +71,7 @@
 
 ### Chrome / Edge
 
-1. 在 GitHub 的 `Releases` 页面下载最新的 `*-chrome.zip` 包
+1. 在 GitHub 的 `Releases` 页面下载最新的 `*-chrome.zip` 包（Edge 用户下载 `*-edge.zip`，内附 `EDGE-INSTALL.txt` 安装说明；Edge 亦可直接使用 `*-chrome.zip`）
 2. 解压到任意本地目录
 3. 打开扩展管理页：
    - Chrome：`chrome://extensions/`
@@ -66,6 +93,9 @@
 
 - `README.md` / `LICENSE`：项目说明与许可证
 - `extension/`：插件源码（manifest、js、css、icons）
+  - `batch-core.js`：批量下载核心（合集解析、并发队列、ZIP 打包）
+  - `batch.html` / `batch.js` / `batch.css`：批量下载管理页
+  - `background.js`：后台（含批量任务调度与消息路由）
 
 ## 用自己的 Agent 二次修改
 

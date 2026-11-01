@@ -1,3 +1,10 @@
+/* Chrome MV3 以 classic service worker 运行，没有 importScripts 之外的加载方式，
+ * 因此 batch-core.js 通过 manifest 的 background.scripts（Firefox）或本文件顶部的
+ * 同步 importScripts（Chrome/Edge）加载；本文件所有批量能力都必须在此之后使用。 */
+if (typeof importScripts === "function" && typeof globalThis.BOCBatch === "undefined") {
+  importScripts("batch-core.js");
+}
+
 const DEFAULT_PRESET_PROMPTS = [
   "生成视频摘要和结论",
   "按章节整理视频内容",
@@ -919,6 +926,91 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  /* ---------------------- 批量字幕下载 ---------------------- */
+
+  if (message.type === "batch-parse") {
+    (async () => {
+      const targets = BOCBatch.parseTargets(message.input || "");
+      if (!targets.length) {
+        sendResponse({ ok: false, error: "没有识别到有效的 B 站链接或 BV 号" });
+        return;
+      }
+      const groups = [];
+      for (const target of targets) {
+        try {
+          const resolved = await BOCBatch.resolveTarget(target);
+          groups.push({ ok: true, target, ...resolved });
+        } catch (error) {
+          groups.push({
+            ok: false,
+            target,
+            error: error?.message || String(error),
+            title: target.raw || target.id
+          });
+        }
+      }
+      sendResponse({ ok: true, groups });
+    })().catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (message.type === "batch-fetch") {
+    (async () => {
+      const tracksResult = await BOCBatch.fetchSubtitleTracks({
+        bvid: message.bvid || "",
+        cid: message.cid || "",
+        aid: message.aid || ""
+      });
+      sendResponse({
+        ok: true,
+        tracks: tracksResult.tracks,
+        chapters: Array.isArray(tracksResult.chapters) ? tracksResult.chapters.length : 0
+      });
+    })().catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (message.type === "batch-build-zip") {
+    (async () => {
+      const entries = Array.isArray(message.entries) ? message.entries : [];
+      const bytes = BOCBatch.buildZip(entries);
+      // 转成 base64 分片传输，避免超大数组通过消息通道
+      let binary = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      sendResponse({ ok: true, base64: btoa(binary) });
+    })().catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (message.type === "batch-save-job") {
+    BOCBatch.saveJob(message.job || {})
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (message.type === "batch-load-job") {
+    BOCBatch.loadJob()
+      .then((job) => sendResponse({ ok: true, job }))
+      .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (message.type === "open-batch-page") {
+    const url = new URL(chrome.runtime.getURL("batch.html"));
+    if (message.input) {
+      url.searchParams.set("input", String(message.input));
+    }
+    chrome.tabs
+      .create({ url: url.toString() })
+      .then((tab) => sendResponse({ ok: true, tabId: tab?.id || null }))
+      .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
   if (message.type === "fetch-json") {
     const url = typeof message.url === "string" ? message.url : "";
     if (!url) {
@@ -1263,6 +1355,154 @@ chrome.runtime.onConnect.addListener((port) => {
     } finally {
       clearActiveRequestState();
     }
+  });
+});
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (!port || port.name !== "boc-batch") {
+    return;
+  }
+
+  let aborted = false;
+  port.onDisconnect.addListener(() => {
+    aborted = true;
+  });
+
+  port.onMessage.addListener(async (msg) => {
+    if (!msg || msg.action !== "start") return;
+    const job = msg.job || {};
+    const options = { ...BOCBatch.defaults, ...(job.options || {}) };
+    const items = Array.isArray(job.items) ? job.items : [];
+    const settings = msg.settings || {};
+    const post = (payload) => {
+      try {
+        port.postMessage(payload);
+      } catch {}
+    };
+
+    post({ type: "start", total: items.length });
+
+    if (job.mode === "obsidian") {
+      const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
+      const apiKey = String(settings.obsidianApiKey || "").trim();
+      if (!baseUrl || !apiKey) {
+        post({ type: "fatal", error: "请先在设置中填写 Obsidian Local REST API 地址和 API Key" });
+        return;
+      }
+      const folder = String(job.folder || settings.noteFolder || "Clippings/Bilibili").replace(/^\/+|\/+$/g, "");
+      const results = await BOCBatch.runQueue(
+        items,
+        async (item) => {
+          const filepath = `${folder}/${BOCBatch.sanitizeName(
+            BOCBatch.buildItemBaseName(item, options.naming),
+            item.bvid,
+            100
+          )}.md`;
+          if (options.skipExisting) {
+            const exists = await BOCBatch.noteExists({ baseUrl, apiKey, filepath }).catch(() => false);
+            if (exists) {
+              return { key: item.key, ok: true, status: "skipped", filepath, error: "已存在，跳过" };
+            }
+          }
+          // 写入笔记需要完整的字幕正文，这里在后台重新抓取，
+          // 避免依赖页面与后台之间的 payload 往返（消息通道不做区分）
+          const fetched = await BOCBatch.fetchItemSubtitle(item, {
+            subtitleLang: options.subtitleLang
+          });
+          if (!fetched.ok) {
+            return { key: item.key, ok: false, status: fetched.status, error: fetched.error };
+          }
+          const markdown = BOCBatch.buildMarkdown(job, { ...item, cid: fetched.cid }, fetched.body, {
+            lan: fetched.track?.lan,
+            lanDoc: fetched.track?.lanDoc
+          });
+          await BOCBatch.writeNote({ baseUrl, apiKey, filepath, content: markdown });
+          return { key: item.key, ok: true, status: "ok", filepath, lineCount: fetched.body.length };
+        },
+        {
+          concurrency: options.concurrency,
+          delayMs: options.delayMs,
+          signal: { get aborted() { return aborted; } },
+          onProgress: (progress) =>
+            post({
+              type: "progress",
+              done: progress.done,
+              total: progress.total,
+              key: progress.item?.key,
+              item: progress.item,
+              result: progress.result
+            })
+        }
+      );
+      post({ type: "done", mode: "obsidian", results });
+      return;
+    }
+
+    const results = await BOCBatch.runQueue(
+      items,
+      async (item) => {
+        const fetched = await BOCBatch.fetchItemSubtitle(item, {
+          subtitleLang: options.subtitleLang,
+          maxRetries: options.maxRetries
+        });
+        if (!fetched.ok) {
+          return {
+            key: item.key,
+            ok: false,
+            status: fetched.status,
+            error: fetched.error,
+            tracks: fetched.tracks || []
+          };
+        }
+
+        const baseName = BOCBatch.buildItemBaseName(item, options.naming);
+        const langSuffix = BOCBatch.sanitizeName(fetched.track?.lan || "subtitle", "subtitle", 20);
+        let path = "";
+        let content = "";
+        if (options.format === "markdown") {
+          path = `${baseName}.md`;
+          content = BOCBatch.buildMarkdown(job, { ...item, cid: fetched.cid }, fetched.body, {
+            lan: fetched.track?.lan,
+            lanDoc: fetched.track?.lanDoc
+          });
+        } else if (options.format === "txt") {
+          path = `${baseName}.txt`;
+          content = BOCBatch.buildTxt(fetched.body, { withTimestamp: options.includeTimestamp !== false });
+        } else {
+          path = `${baseName}.${langSuffix}.srt`;
+          content = BOCBatch.buildSrt(fetched.body);
+        }
+
+        return {
+          key: item.key,
+          ok: true,
+          status: "ok",
+          path,
+          content,
+          cid: fetched.cid,
+          lan: fetched.track?.lan || "",
+          lanDoc: fetched.track?.lanDoc || "",
+          lineCount: fetched.body.length,
+          tracks: fetched.tracks
+        };
+      },
+      {
+        concurrency: options.concurrency,
+        delayMs: options.delayMs,
+        signal: { get aborted() { return aborted; } },
+        onProgress: (progress) =>
+          post({
+            type: "progress",
+            done: progress.done,
+            total: progress.total,
+            key: progress.item?.key,
+            item: progress.item,
+            result: progress.result
+          })
+      }
+    );
+
+    post({ type: "done", mode: "download", results });
   });
 });
 

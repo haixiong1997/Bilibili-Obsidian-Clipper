@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>B站字幕批量下载</title>
+    <link rel="stylesheet" href="./batch.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="hero">
+        <div class="hero-text">
+          <h1>B站字幕批量下载</h1>
+          <p>粘贴视频、合集或多 P 链接，一次性抓取整季字幕，打包导出或批量写入 Obsidian。</p>
+        </div>
+        <div class="hero-badge" id="loginHint">使用当前浏览器登录态</div>
+      </header>
+
+      <section class="card">
+        <label class="field-label" for="input">视频 / 合集链接</label>
+        <textarea
+          id="input"
+          rows="3"
+          placeholder="支持：BV 号 / 视频链接 / 分 P 链接（?p=2）/ 合集链接（space.bilibili.com/.../channel/collectiondetail?sid=xxx）/ 番剧 ep / 收藏夹链接&#10;可一次粘贴多行，每行一个。"
+        ></textarea>
+        <div class="input-actions">
+          <button id="parseBtn" type="button" class="primary">解析列表</button>
+          <button id="pasteBtn" type="button" class="ghost">读取剪贴板</button>
+          <span class="hint" id="parseHint">提示：合集链接可直接在 UP 主页“合集”里复制地址栏。</span>
+        </div>
+      </section>
+
+      <section class="card options" id="optionsCard">
+        <div class="options-grid">
+          <label class="opt">
+            <span>导出格式</span>
+            <select id="format">
+              <option value="srt">SRT 字幕（.srt）</option>
+              <option value="txt">纯文本（.txt）</option>
+              <option value="markdown">Markdown 笔记（.md）</option>
+            </select>
+          </label>
+          <label class="opt">
+            <span>字幕语言</span>
+            <select id="subtitleLang">
+              <option value="auto">自动（优先中文）</option>
+            </select>
+          </label>
+          <label class="opt">
+            <span>文件名规则</span>
+            <select id="naming">
+              <option value="index-title">001-标题</option>
+              <option value="title">仅标题</option>
+              <option value="index">仅序号</option>
+            </select>
+          </label>
+          <label class="opt">
+            <span>并发数</span>
+            <select id="concurrency">
+              <option value="1">1（最稳）</option>
+              <option value="2">2</option>
+              <option value="3" selected>3（推荐）</option>
+              <option value="5">5（较快）</option>
+            </select>
+          </label>
+          <label class="opt">
+            <span>请求间隔</span>
+            <select id="delayMs">
+              <option value="150">150 ms</option>
+              <option value="350" selected>350 ms</option>
+              <option value="800">800 ms（保守）</option>
+              <option value="1500">1500 ms（最保守）</option>
+            </select>
+          </label>
+          <label class="opt checkbox">
+            <input id="includeTimestamp" type="checkbox" checked />
+            <span>TXT / Markdown 保留时间戳</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="card list-card" id="listCard" hidden>
+        <div class="list-head">
+          <div class="list-title">
+            <strong id="listTitle">解析结果</strong>
+            <span class="muted" id="listMeta"></span>
+          </div>
+          <div class="list-tools">
+            <button id="selectAllBtn" type="button" class="mini">全选</button>
+            <button id="selectNoneBtn" type="button" class="mini">全不选</button>
+            <button id="expandSeasonBtn" type="button" class="mini" hidden>展开为合集</button>
+          </div>
+        </div>
+
+        <div class="batch-summary" id="summary" hidden>
+          <div class="progress">
+            <div class="progress-bar"><i id="progressFill"></i></div>
+            <span id="progressText">0 / 0</span>
+          </div>
+          <div class="summary-stats" id="summaryStats"></div>
+        </div>
+
+        <div class="rows" id="rows"></div>
+
+        <div class="list-footer">
+          <span class="muted" id="selectedInfo">已选 0 项</span>
+          <div class="footer-actions">
+            <button id="stopBtn" type="button" class="ghost" hidden>停止</button>
+            <button id="retryFailedBtn" type="button" class="ghost" hidden>重试失败项</button>
+            <button id="obsidianBtn" type="button" class="ghost">写入 Obsidian</button>
+            <button id="downloadBtn" type="button" class="ghost">下载 ZIP</button>
+            <button id="startBtn" type="button" class="primary">开始抓取字幕</button>
+          </div>
+        </div>
+      </section>
+
+      <p class="status" id="status">等待解析链接…</p>
+    </div>
+
+    <script src="./batch.js"></script>
+  </body>
+</html>

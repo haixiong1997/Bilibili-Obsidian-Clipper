@@ -11,6 +11,7 @@ const el = {
   copyBtn: document.getElementById("copyBtn"),
   downloadBtn: document.getElementById("downloadBtn"),
   sendBtn: document.getElementById("sendBtn"),
+  batchBtn: document.getElementById("batchBtn"),
   readingViewBtn: document.getElementById("readingViewBtn"),
   aiBtn: document.getElementById("aiBtn"),
   settingsBtn: document.getElementById("settingsBtn")
@@ -140,6 +141,19 @@ function bindEvents() {
 
   el.settingsBtn.addEventListener("click", async () => {
     await sendToRuntime({ type: "open-options" });
+  });
+
+  el.batchBtn?.addEventListener("click", async () => {
+    const tab = await getActiveTab();
+    const url = String(tab?.url || "");
+    // 带上级当前视频链接，打开批量页后可直接解析整季
+    const input = isSupportedSubtitlePage(url) ? url : "";
+    const resp = await sendToRuntime({ type: "open-batch-page", input });
+    if (!resp?.ok) {
+      setMessage(`打开批量下载失败：${resp?.error || "未知错误"}`);
+      return;
+    }
+    window.setTimeout(() => window.close(), 120);
   });
 
   el.aiBtn?.addEventListener("click", async () => {

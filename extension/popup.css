@@ -19,7 +19,7 @@ body {
   margin: 0;
   padding: 0;
   width: 360px;
-  height: 540px;
+  height: 580px;
   background: var(--popup-bg);
   color: #2f2f2f;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue",
@@ -209,6 +209,22 @@ body {
   font-weight: 600;
   color: #fff;
   cursor: pointer;
+}
+
+.batch {
+  border: 1px solid #cfd7e6;
+  background: #fff;
+  border-radius: 9px;
+  padding: 8px 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #4b556b;
+  cursor: pointer;
+}
+
+.batch:hover {
+  border-color: var(--action-accent);
+  color: var(--action-accent);
 }
 
 button:disabled {
